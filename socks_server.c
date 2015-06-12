@@ -96,11 +96,8 @@ int socks5_auth(int client_sockfd) {
 
 typedef union {
 	uint8_t ipv4[4];
-	struct {
-		unsigned char len;
-		char name[256]; // 255 + 1 for ending '\0'
-	} domain_name;
 	uint8_t ipv6[16];
+	char domain_name[256]; // 255 + 1 for ending '\0'
 } address_union;
 
 typedef enum {
@@ -159,7 +156,7 @@ int make_sockaddr(unsigned char addr_type, address_union *address, unsigned int 
 			memset(&hints, 0, sizeof(hints));
 			hints.ai_family = AF_UNSPEC;
 			struct addrinfo *res;
-			int ret = getaddrinfo(address->domain_name.name, port_str, &hints, &res);
+			int ret = getaddrinfo(address->domain_name, port_str, &hints, &res);
 			if (ret == EAI_NONAME || ret == EAI_NODATA ) return REP_HOST_UNREACHABLE;
 			else if (ret != 0) {fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(ret)); exit(EXIT_FAILURE);}
 			
@@ -177,7 +174,7 @@ int make_sockaddr(unsigned char addr_type, address_union *address, unsigned int 
 }
 
 int socks5_connect(int client_sockfd, int *connect_sockfd_p) {
-	static uint8_t buffer[256];										// thread unsafe
+	uint8_t buffer[4];
 	if (read_all(client_sockfd, buffer, 4)) return -2;
 	unsigned char ver       = buffer[0];
 	unsigned char cmd       = buffer[1];
@@ -187,25 +184,22 @@ int socks5_connect(int client_sockfd, int *connect_sockfd_p) {
 	if (reserved != 0) return -1;
 	if (!(addr_type == ATYP_IPV4 || addr_type == ATYP_DOMAIN || addr_type == ATYP_IPV6)) return -1;
 	static address_union address;									// thread unsafe
-	unsigned int i;
 	switch (addr_type) {
 		case ATYP_IPV4: {
-			if (read_all(client_sockfd, buffer, 4)) return -2;
-			for (i=0; i<4; ++i) address.ipv4[i] = buffer[i];
+			if (read_all(client_sockfd, address.ipv4, 4)) return -2;
 			break;
 		}
 		case ATYP_IPV6: {
-			if (read_all(client_sockfd, buffer, 16)) return -2;
-			for (i=0; i<16; ++i) address.ipv6[i] = buffer[i];
+			if (read_all(client_sockfd, address.ipv6, 16)) return -2;
 			break;
 		}
 		case ATYP_DOMAIN: {
 			if (read_all(client_sockfd, buffer, 1)) return -2;
-			address.domain_name.len = buffer[0];
-			if (address.domain_name.len == 0) return -1;
-			if (read_all(client_sockfd, buffer, address.domain_name.len)) return -2;
-			for (i=0; i<address.domain_name.len; ++i) address.domain_name.name[i] = buffer[i];
-			address.domain_name.name[address.domain_name.len] = 0;
+			unsigned char domain_name_len = buffer[0];
+			if (domain_name_len == 0) return -1;
+			assert(sizeof(char) == 1);
+			if (read_all(client_sockfd, address.domain_name, domain_name_len)) return -2;
+			address.domain_name[domain_name_len] = 0;
 			break;
 		}
 	}
