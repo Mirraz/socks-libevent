@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -126,6 +127,55 @@ typedef enum {
 	REP_ADDRESS_TYPE_NOT_SUPPORTED = 8,
 } rep_enum;
 
+int make_sockaddr(unsigned char addr_type, address_union *address, unsigned int port,
+			struct sockaddr **addr_p, socklen_t *addr_len_p) {
+	switch (addr_type) {
+		case ATYP_IPV4: {
+			struct sockaddr_in *connect_sin = malloc(sizeof(struct sockaddr_in));
+			if (connect_sin == NULL) perror_and_exit("malloc");
+			memset(connect_sin, 0, sizeof(struct sockaddr_in));
+			connect_sin->sin_family = AF_INET;
+			connect_sin->sin_port = htons(port);
+			memcpy(&(connect_sin->sin_addr.s_addr), address->ipv4, 4);
+			*addr_p = (struct sockaddr *)connect_sin;
+			*addr_len_p = sizeof(struct sockaddr_in);
+			break;
+		}
+		case ATYP_IPV6: {
+			struct sockaddr_in6 *connect_sin6 = malloc(sizeof(struct sockaddr_in6));
+			if (connect_sin6 == NULL) perror_and_exit("malloc");
+			memset(connect_sin6, 0, sizeof(struct sockaddr_in6));
+			connect_sin6->sin6_family = AF_INET6;
+			connect_sin6->sin6_port = htons(port);
+			memcpy(&(connect_sin6->sin6_addr.s6_addr), address->ipv6, 16);
+			*addr_p = (struct sockaddr *)connect_sin6;
+			*addr_len_p = sizeof(struct sockaddr_in6);
+			break;
+		}
+		case ATYP_DOMAIN: {
+			char port_str[6]; // max len = 5 (for 65535) +1 for ending '\0'
+			assert(snprintf(port_str, sizeof(port_str), "%u", port) < sizeof(port_str));
+			struct addrinfo hints;
+			memset(&hints, 0, sizeof(hints));
+			hints.ai_family = AF_UNSPEC;
+			struct addrinfo *res;
+			int ret = getaddrinfo(address->domain_name.name, port_str, &hints, &res);
+			if (ret == EAI_NONAME || ret == EAI_NODATA ) return REP_HOST_UNREACHABLE;
+			else if (ret != 0) {fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(ret)); exit(EXIT_FAILURE);}
+			
+			unsigned int addr_len = res->ai_addrlen;
+			struct sockaddr *addr = malloc(addr_len);
+			if (addr == NULL) perror_and_exit("malloc");
+			memcpy(addr, res->ai_addr, addr_len);
+			freeaddrinfo(res);
+			*addr_p = addr;
+			*addr_len_p = addr_len;
+			break;
+		}
+	}
+	return 0;
+}
+
 int socks5_connect(int client_sockfd, int *connect_sockfd_p) {
 	static uint8_t buffer[256];										// thread unsafe
 	if (read_all(client_sockfd, buffer, 4)) return -2;
@@ -170,62 +220,29 @@ int socks5_connect(int client_sockfd, int *connect_sockfd_p) {
 	unsigned char rep;
 	if (cmd == CMD_CONNECT) {
 		rep = REP_SUCCEEDED;
+		
 		struct sockaddr *connect_addr;
 		socklen_t connect_addr_len;
-		switch (addr_type) {
-			case ATYP_IPV4: {
-				struct sockaddr_in *connect_sin = malloc(sizeof(struct sockaddr_in)); // assert
-				memset(connect_sin, 0, sizeof(struct sockaddr_in));
-				connect_sin->sin_family = AF_INET;
-				connect_sin->sin_port = htons(port);
-				memcpy(&(connect_sin->sin_addr.s_addr), address.ipv4, 4);
-				connect_addr = (struct sockaddr *)connect_sin;
-				connect_addr_len = sizeof(struct sockaddr_in);
-				break;
-			}
-			case ATYP_IPV6: {
-				struct sockaddr_in6 *connect_sin6 = malloc(sizeof(struct sockaddr_in6)); // assert
-				memset(connect_sin6, 0, sizeof(struct sockaddr_in6));
-				connect_sin6->sin6_family = AF_INET6;
-				connect_sin6->sin6_port = htons(port);
-				memcpy(&(connect_sin6->sin6_addr.s6_addr), address.ipv6, 16);
-				connect_addr = (struct sockaddr *)connect_sin6;
-				connect_addr_len = sizeof(struct sockaddr_in6);
-				break;
-			}
-			case ATYP_DOMAIN: {
-				char port_str[6];
-				snprintf(port_str, sizeof(port_str), "%u", port); //assert
-				struct addrinfo hints;
-				memset(&hints, 0, sizeof(hints));
-				hints.ai_family = AF_UNSPEC;
-				struct addrinfo *res;
-				if (getaddrinfo(address.domain_name.name, port_str, &hints, &res)) {
-					rep = REP_HOST_UNREACHABLE;
-					goto send_rep;
-				}
-				connect_addr_len = res->ai_addrlen;
-				connect_addr = malloc(connect_addr_len); // assert
-				memcpy(connect_addr, res->ai_addr, connect_addr_len);
-				freeaddrinfo(res);
-				break;
-			}
-		}
-		int connect_sockfd = socket(AF_INET, SOCK_STREAM, 0);
-		if (connect_sockfd < 0) perror_and_exit("socket");
-		
-		if (connect(connect_sockfd, connect_addr, connect_addr_len)) {
-			if (errno == ECONNREFUSED) rep = REP_CONNECTION_REFUSED;
-			else rep = REP_GENERAL_SOCKS_SERVER_FAILURE;
-			close(connect_sockfd);
+		int ret = make_sockaddr(addr_type, &address, port, &connect_addr, &connect_addr_len);
+		assert(ret >= 0);
+		if (ret > 0) {
+			rep = ret;
 		} else {
-			*connect_sockfd_p = connect_sockfd;
+			int connect_sockfd = socket(AF_INET, SOCK_STREAM, 0);
+			if (connect_sockfd < 0) perror_and_exit("socket");
+			
+			if (connect(connect_sockfd, connect_addr, connect_addr_len)) {
+				if (errno == ECONNREFUSED) rep = REP_CONNECTION_REFUSED;
+				else perror_and_exit("connect");
+			} else {
+				*connect_sockfd_p = connect_sockfd;
+			}
+			
+			free(connect_addr);
 		}
-		free(connect_addr);
 	} else {
 		rep = REP_COMMAND_NOT_SUPPORTED;
 	}
-send_rep:
 	resp_buf[1] = rep;
 	if (write_all(client_sockfd, resp_buf, sizeof(resp_buf))) return -2;
 	return (rep == REP_SUCCEEDED ? 0 : 1);
