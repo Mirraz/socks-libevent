@@ -12,19 +12,40 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <poll.h>
+#include <signal.h>
 
 void perror_and_exit(const char *s) {
 	perror(s);
 	exit(EXIT_FAILURE);
 }
 
+ssize_t read_wrapper(int fd, void *buf, size_t count) {
+	ssize_t read_bytes = read(fd, buf, count);
+	if (read_bytes < 0) {
+		if (errno == ECONNRESET) return -1;
+		else perror_and_exit("read");
+	}
+	if (read_bytes == 0) return -1;
+	assert(read_bytes <= count);
+	return read_bytes;
+}
+
+ssize_t write_wrapper(int fd, const void *buf, size_t count) {
+	ssize_t write_bytes = write(fd, buf, count);
+	if (write_bytes < 0) {
+		if (errno == ECONNRESET) return -1;
+		else perror_and_exit("write");
+	}
+	if (write_bytes == 0) return -1;
+	assert(write_bytes <= count);
+	return write_bytes;
+}
+
 int read_all(int fd, void *buf, size_t count) {
 	ssize_t read_bytes;
 	while (count > 0) {
-		read_bytes = read(fd, buf, count);
-		assert(read_bytes <= count);
-		if (read_bytes < 0) perror_and_exit("read");
-		if (read_bytes == 0) return -1;
+		read_bytes = read_wrapper(fd, buf, count);
+		if (read_bytes <= 0) return -1;
 		buf   += read_bytes;
 		count -= read_bytes;
 	}
@@ -34,10 +55,8 @@ int read_all(int fd, void *buf, size_t count) {
 int write_all(int fd, const void *buf, size_t count) {
 	ssize_t write_bytes;
 	while (count > 0) {
-		write_bytes = write(fd, buf, count);
-		assert(write_bytes <= count);
-		if (write_bytes < 0) perror_and_exit("write");
-		if (write_bytes == 0) return -1;
+		write_bytes = write_wrapper(fd, buf, count);
+		if (write_bytes <= 0) return -1;
 		buf   += write_bytes;
 		count -= write_bytes;
 	}
@@ -234,9 +253,8 @@ int transfer_data(int client_sockfd, int connect_sockfd) {
 			if (fds[i].revents == 0) continue;
 			--poll_count;
 			if (fds[i].revents & POLLIN) {
-				read_bytes = read(fds[i].fd, data_buf, data_buf_size);
-				if (read_bytes < 0) perror_and_exit("read");
-				if (read_bytes == 0) return 1;
+				read_bytes = read_wrapper(fds[i].fd, data_buf, data_buf_size);
+				if (read_bytes <= 0) return 1;
 				if (write_all(fd_to_write[i], data_buf, read_bytes)) return 1;
 			}
 			if (fds[i].revents & POLLHUP) return 1;
@@ -246,16 +264,21 @@ int transfer_data(int client_sockfd, int connect_sockfd) {
 }
 
 void socks5(int client_sockfd) {
-	if (socks5_auth(client_sockfd)) return;
-	int connect_sockfd;
-	if (socks5_connect(client_sockfd, &connect_sockfd)) return;
-	transfer_data(client_sockfd, connect_sockfd);
-	if (close(connect_sockfd)) perror_and_exit("close");
+	do {
+		if (socks5_auth(client_sockfd)) break;
+		int connect_sockfd;
+		if (socks5_connect(client_sockfd, &connect_sockfd)) break;
+		transfer_data(client_sockfd, connect_sockfd);
+		if (close(connect_sockfd)) perror_and_exit("close");
+	} while (false);
+	if (close(client_sockfd)) perror_and_exit("close");
 }
 
 #define MAXPENDING 5
 
 int main(int argc, char* argv[]) {
+	if (signal(SIGCHLD, SIG_IGN) == SIG_ERR) perror_and_exit("signal");
+
 	int port = 9090;
 
 	int server_sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -281,9 +304,15 @@ int main(int argc, char* argv[]) {
 		client_sockfd = accept(server_sockfd, (struct sockaddr *)&client_sin, &client_sin_len);
 		if (client_sockfd < 0) perror_and_exit("accept");
 
-		socks5(client_sockfd);
-	
-		if (close(client_sockfd)) perror_and_exit("close");
+		pid_t pid = fork();
+		if (pid < 0) perror_and_exit("fork");
+		if (pid == 0) {
+			if (close(server_sockfd)) perror_and_exit("close");
+			socks5(client_sockfd);
+			exit(EXIT_SUCCESS);
+		} else {
+			if (close(client_sockfd)) perror_and_exit("close");
+		}
 	}
 	
 	if (close(server_sockfd)) perror_and_exit("close");
