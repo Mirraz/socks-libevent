@@ -226,8 +226,10 @@ int socks5_connect(int client_sockfd, int *connect_sockfd_p) {
 			if (connect_sockfd < 0) perror_and_exit("socket");
 			
 			if (connect(connect_sockfd, connect_addr, connect_addr_len)) {
-				if (errno == ECONNREFUSED) rep = REP_CONNECTION_REFUSED;
-				else perror_and_exit("connect");
+				if (errno == ECONNREFUSED) {
+					rep = REP_CONNECTION_REFUSED;
+					if (close(connect_sockfd)) perror_and_exit("close");
+				} else perror_and_exit("connect");
 			} else {
 				*connect_sockfd_p = connect_sockfd;
 			}
@@ -238,7 +240,12 @@ int socks5_connect(int client_sockfd, int *connect_sockfd_p) {
 		rep = REP_COMMAND_NOT_SUPPORTED;
 	}
 	resp_buf[1] = rep;
-	if (write_all(client_sockfd, resp_buf, sizeof(resp_buf))) return -2;
+	if (write_all(client_sockfd, resp_buf, sizeof(resp_buf))) {
+		if (rep == REP_SUCCEEDED) {
+			if (close(*connect_sockfd_p)) perror_and_exit("close");
+		}
+		return -2;
+	}
 	return (rep == REP_SUCCEEDED ? 0 : 1);
 }
 
