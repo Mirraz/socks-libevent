@@ -243,12 +243,22 @@ int socks5_connect(int client_sockfd, int *connect_sockfd_p) {
 		if (ret > 0) {
 			rep = ret;
 		} else {
-			int connect_sockfd = socket(AF_INET, SOCK_STREAM, 0);
+			int connect_sockfd = socket(connect_addr->sa_family, SOCK_STREAM, 0);
 			if (connect_sockfd < 0) perror_and_exit("socket");
 			
 			if (connect(connect_sockfd, connect_addr, connect_addr_len)) {
-				if (errno == ECONNREFUSED) {
-					rep = REP_CONNECTION_REFUSED;
+				if (errno == ECONNREFUSED || errno == ENETUNREACH || errno == ETIMEDOUT) {
+					switch (errno) {
+						case ECONNREFUSED:
+							rep = REP_CONNECTION_REFUSED;
+							break;
+						case ETIMEDOUT:
+							rep = REP_HOST_UNREACHABLE;
+							break;
+						case ENETUNREACH:
+							rep = REP_NETWORK_UNREACHABLE;
+							break;
+					}
 					if (close(connect_sockfd)) perror_and_exit("close");
 				} else perror_and_exit("connect");
 			} else {
