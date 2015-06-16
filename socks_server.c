@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdarg.h>
 #include <assert.h>
 #include <memory.h>
 #include <errno.h>
@@ -14,6 +15,15 @@
 #include <netinet/in.h>
 #include <poll.h>
 #include <signal.h>
+
+void printf_and_exit(const char *format, ...) {
+   va_list arglist;
+   va_start(arglist, format);
+   vfprintf(stderr, format, arglist);
+   va_end(arglist);
+   fprintf(stderr, "\n");
+   exit(EXIT_FAILURE);
+}
 
 void perror_and_exit(const char *s) {
 	perror(s);
@@ -158,7 +168,7 @@ int make_sockaddr(unsigned char addr_type, address_union *address, unsigned int 
 			struct addrinfo *res;
 			int ret = getaddrinfo(address->domain_name, port_str, &hints, &res);
 			if (ret == EAI_NONAME || ret == EAI_NODATA ) return REP_HOST_UNREACHABLE;
-			else if (ret != 0) {fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(ret)); exit(EXIT_FAILURE);}
+			else if (ret != 0) printf_and_exit("getaddrinfo: %s", gai_strerror(ret));
 			
 			unsigned int addr_len = res->ai_addrlen;
 			struct sockaddr *addr = malloc(addr_len);
