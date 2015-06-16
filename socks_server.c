@@ -37,7 +37,10 @@ ssize_t read_wrapper(int fd, void *buf, size_t count) {
 		else perror_and_exit("read");
 	}
 	if (read_bytes == 0) return -1;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsign-compare"
 	assert(read_bytes <= count);
+#pragma GCC diagnostic pop
 	return read_bytes;
 }
 
@@ -48,7 +51,10 @@ ssize_t write_wrapper(int fd, const void *buf, size_t count) {
 		else perror_and_exit("write");
 	}
 	if (write_bytes == 0) return -1;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsign-compare"
 	assert(write_bytes <= count);
+#pragma GCC diagnostic pop
 	return write_bytes;
 }
 
@@ -161,7 +167,12 @@ int make_sockaddr(unsigned char addr_type, address_union *address, unsigned int 
 		}
 		case ATYP_DOMAIN: {
 			char port_str[6]; // max len = 5 (for 65535) +1 for ending '\0'
-			assert(snprintf(port_str, sizeof(port_str), "%u", port) < sizeof(port_str));
+			int printed = snprintf(port_str, sizeof(port_str), "%u", port);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsign-compare"
+			assert(printed > 0 && printed < sizeof(port_str));
+#pragma GCC diagnostic pop
+			(void)printed;
 			struct addrinfo hints;
 			memset(&hints, 0, sizeof(hints));
 			hints.ai_family = AF_UNSPEC;
@@ -305,6 +316,8 @@ void socks5(int client_sockfd) {
 #define MAXPENDING 5
 
 int main(int argc, char* argv[]) {
+	(void)argc;
+	(void)argv;
 	if (signal(SIGCHLD, SIG_IGN) == SIG_ERR) perror_and_exit("signal");
 
 	int port = 9090;
