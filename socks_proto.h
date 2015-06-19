@@ -4,11 +4,15 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#include "common.h"
+
 typedef union {
 	uint8_t ipv4[4];
 	uint8_t ipv6[16];
 	char domain_name[256]; // 255 + 1 for ending '\0'
 } address_union;
+
+typedef unsigned int socks5_state_type;
 
 typedef union {
 	uint8_t auth_header[2];
@@ -27,22 +31,29 @@ typedef union {
 } socks5_context_union;
 
 typedef struct {
-	void *buf;
-	size_t count;
-} read_task_struct;
-
-typedef unsigned int socks5_state_type;
-
-typedef struct {
-	int client_sockfd;
-	int connect_sockfd;
-	read_task_struct read_task;
-	socks5_state_type state;
-	socks5_context_union ctx;
+	task_struct task;
+	struct {
+		int client_sockfd;
+		int connect_sockfd;
+		socks5_state_type state;
+		socks5_context_union ctx;
+	} socks5;
 } socks5_arg_struct;
 
-void socks5_clinet_init(socks5_arg_struct *socks5_arg, int client_sockfd);
-int socks5_client_read_cb(socks5_arg_struct *socks5_arg);
+typedef enum {
+	SOCKS5_RES_TASK,
+	SOCKS5_RES_ERROR,
+	SOCKS5_RES_WRONG_DATA,
+	SOCKS5_RES_REFUSED,
+	SOCKS5_RES_HANGUP,
+	SOCKS5_RES_DONE,
+} socks5_result_enum;
+
+void socks5_init(socks5_arg_struct *socks5_arg, int client_sockfd);
+int socks5(socks5_arg_struct *socks5_arg);
+int get_client_sockfd(socks5_arg_struct *socks5_arg);
+int get_connect_sockfd(socks5_arg_struct *socks5_arg);
+task_struct *get_task(socks5_arg_struct *socks5_arg);
 
 #endif/*SOCKS_SERVER_HANDLE_CLIENT_H*/
 

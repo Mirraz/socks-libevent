@@ -5,6 +5,8 @@
 #include <unistd.h>
 #include <errno.h>
 
+#include "common.h"
+
 void printf_and_exit(const char *format, ...) {
    va_list arglist;
    va_start(arglist, format);
@@ -67,5 +69,47 @@ int write_all(int fd, const void *buf, size_t count) {
 		count -= write_bytes;
 	}
 	return 0;
+}
+
+void fill_read_task(read_task_struct *read_task, int fd, void *buf, size_t count) {
+	read_task->fd = fd;
+	read_task->buf = buf;
+	read_task->count = count;
+}
+
+ssize_t do_read_task(read_task_struct *read_task) {
+	assert(read_task->count > 0);
+	ssize_t read_bytes = read_wrapper(read_task->fd, read_task->buf, read_task->count);
+	assert(read_bytes != 0);
+	if (read_bytes < 0) return read_bytes;
+	read_task->buf   += read_bytes;
+	read_task->count -= read_bytes;
+	return read_task->count;
+}
+
+int get_read_result(read_task_struct *read_task) {
+	return read_task->ret;
+}
+
+void fill_getaddrinfo_task(getaddrinfo_task_struct *getaddrinfo_task,
+		const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res) {
+	getaddrinfo_task->node = node;
+	getaddrinfo_task->service = service;
+	getaddrinfo_task->hints = hints;
+	getaddrinfo_task->res = res;
+}
+
+int get_getaddrinfo_result(getaddrinfo_task_struct *getaddrinfo_task) {
+	return getaddrinfo_task->ret;
+}
+
+void fill_connect_task(connect_task_struct *connect_task, int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
+	connect_task->sockfd = sockfd;
+	connect_task->addr = addr;
+	connect_task->addrlen = addrlen;
+}
+
+int get_connect_result(connect_task_struct *connect_task) {
+	return connect_task->ret;
 }
 

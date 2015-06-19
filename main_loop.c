@@ -46,16 +46,46 @@ typedef struct {
 void client_read_cb(evutil_socket_t client_sockfd, short ev_flag, void *arg) {
 	client_read_cb_arg_struct *cbarg = (client_read_cb_arg_struct *)arg;
 	assert(ev_flag == EV_READ);
-	assert(cbarg->socks5_arg.client_sockfd == client_sockfd);
+	assert(get_client_sockfd(&cbarg->socks5_arg) == client_sockfd);
 	
-	int res = socks5_client_read_cb(&cbarg->socks5_arg);
-	if (res < 0)  {
-		del_and_free_client_read_event(cbarg->self, cbarg, client_sockfd);
-	} else if (res > 0) {
-		int connect_sockfd = cbarg->socks5_arg.connect_sockfd;
-		(void)connect_sockfd;
-		// TODO: start transfer
-		printf_and_exit("TODO: start transfer");
+	task_struct *task = get_task(&cbarg->socks5_arg);
+	ssize_t remain_bytes = do_read_task(&task->data.read_task);
+	if (remain_bytes < 0) del_and_free_client_read_event(cbarg->self, cbarg, client_sockfd);
+	if (remain_bytes > 0) return;
+	// remain_bytes == 0
+	int res = socks5(&cbarg->socks5_arg);
+	switch (res) {
+		case SOCKS5_RES_TASK: {
+			task_struct *task = get_task(&cbarg->socks5_arg);
+			switch (task->type) {
+				case TASK_READ:
+					break;
+				case TASK_GETADDRINFO:
+					// TODO
+					break;
+				case TASK_CONNECT:
+					// TODO
+					break;
+				default:
+					assert(0);
+			}
+			break;
+		}
+		case SOCKS5_RES_ERROR:
+		case SOCKS5_RES_WRONG_DATA:
+		case SOCKS5_RES_REFUSED:
+		case SOCKS5_RES_HANGUP:
+			del_and_free_client_read_event(cbarg->self, cbarg, client_sockfd);
+			break;
+		case SOCKS5_RES_DONE: {
+			int connect_sockfd = get_connect_sockfd(&cbarg->socks5_arg);
+			(void)connect_sockfd;
+			// TODO: start transfer
+			printf_and_exit("TODO: start transfer");
+			break;
+		}
+		default:
+			assert(0);
 	}
 }
 
@@ -74,7 +104,7 @@ void server_accept_cb(evutil_socket_t server_sockfd, short ev_flag, void *arg) {
 	
 	client_read_cb_arg_struct *client_read_cb_arg = malloc(sizeof(client_read_cb_arg_struct));
 	if (client_read_cb_arg == NULL) perror_and_exit("malloc");
-	socks5_clinet_init(&client_read_cb_arg->socks5_arg, client_sockfd);
+	socks5_init(&client_read_cb_arg->socks5_arg, client_sockfd);
 	struct event *client_event = event_new(server_accept_cb_arg->base, client_sockfd, EV_READ|EV_PERSIST,
 			client_read_cb, client_read_cb_arg);
 	if (client_event == NULL) everror_and_exit("event_new");

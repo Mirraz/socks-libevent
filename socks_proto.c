@@ -16,48 +16,81 @@
 #include "socks_proto.h"
 #include "common.h"
 
-static inline void read_shedule(socks5_arg_struct *socks5_arg, void *buf, size_t count) {
-	socks5_arg->read_task.buf = buf;
-	socks5_arg->read_task.count = count;
-}
+
 
 static inline socks5_state_type get_state(socks5_arg_struct *socks5_arg) {
-	return socks5_arg->state;
+	return socks5_arg->socks5.state;
 }
 
 static inline void set_next_state(socks5_arg_struct *socks5_arg, socks5_state_type state) {
-	socks5_arg->state = state;
+	socks5_arg->socks5.state = state;
 }
 
 static inline socks5_state_type get_next_state(socks5_arg_struct *socks5_arg) {
-	return socks5_arg->state;
+	return socks5_arg->socks5.state;
 }
 
 static inline socks5_context_union* get_ctx(socks5_arg_struct *socks5_arg) {
-	return &socks5_arg->ctx;
+	return &socks5_arg->socks5.ctx;
 }
 
-static inline int get_client_sockfd(socks5_arg_struct *socks5_arg) {
-	return socks5_arg->client_sockfd;
+int get_client_sockfd(socks5_arg_struct *socks5_arg) {
+	return socks5_arg->socks5.client_sockfd;
+}
+
+static inline void set_client_sockfd(socks5_arg_struct *socks5_arg, int client_sockfd) {
+	socks5_arg->socks5.client_sockfd = client_sockfd;
+}
+
+int get_connect_sockfd(socks5_arg_struct *socks5_arg) {
+	return socks5_arg->socks5.connect_sockfd;
 }
 
 static inline void set_connect_sockfd(socks5_arg_struct *socks5_arg, int connect_sockfd) {
-	socks5_arg->connect_sockfd = connect_sockfd;
+	socks5_arg->socks5.connect_sockfd = connect_sockfd;
 }
+
+task_struct *get_task(socks5_arg_struct *socks5_arg) {
+	return &socks5_arg->task;
+}
+
+
+
+static inline void read_shedule(socks5_arg_struct *socks5_arg, void *buf, size_t count) {
+	task_struct *task = get_task(socks5_arg);
+	task->type = TASK_READ;
+	fill_read_task(&task->data.read_task, get_client_sockfd(socks5_arg), buf, count);
+}
+
+static inline void getaddrinfo_shedule(socks5_arg_struct *socks5_arg,
+		const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res) {
+	task_struct *task = get_task(socks5_arg);
+	task->type = TASK_GETADDRINFO;
+	fill_getaddrinfo_task(&task->data.getaddrinfo_task, node, service, hints, res);
+}
+
+static inline void connect_shedule(socks5_arg_struct *socks5_arg, int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
+	task_struct *task = get_task(socks5_arg);
+	task->type = TASK_CONNECT;
+	fill_connect_task(&task->data.connect_task, sockfd, addr, addrlen);
+}
+
+
 
 typedef enum {
 	STATE_AUTH_HEADER,
 	STATE_AUTH_METHODS,
-	STATE_AUTH_DONE,
 	STATE_CONNECT_HEADER,
 	STATE_CONNECT_ADDR,
 	STATE_CONNECT_ADDR_DOMAIN_LEN,
 	STATE_CONNECT_ADDR_DOMAIN_NAME,
 	STATE_CONNECT_PORT,
-	STATE_CONNECT_DONE,
+	STATE_DONE,
 } socks5_states_enum;
 
 #define SOCKS_VER 5
+
+static void socks5_connect_init(socks5_arg_struct *socks5_arg);
 
 typedef enum {
 	AUTH_NO_AUTHENTICATION = 0,
@@ -80,13 +113,13 @@ static int socks5_auth(socks5_arg_struct *socks5_arg) {
 			
 			unsigned char ver = buffer[0];
 			unsigned char nmethods = buffer[1];
-			if (ver != SOCKS_VER) return -1;
-			if (nmethods == 0) return -1;
+			if (ver != SOCKS_VER) return SOCKS5_RES_WRONG_DATA;
+			if (nmethods == 0) return SOCKS5_RES_WRONG_DATA;
 			
 			ctx->auth.nmethods = nmethods;
 			read_shedule(socks5_arg, &ctx->auth.methods, nmethods);
 			set_next_state(socks5_arg, STATE_AUTH_METHODS);
-			break;
+			return SOCKS5_RES_TASK;
 		}
 		case STATE_AUTH_METHODS: {
 			socks5_context_union *ctx = get_ctx(socks5_arg);
@@ -103,14 +136,15 @@ static int socks5_auth(socks5_arg_struct *socks5_arg) {
 			uint8_t resp_buf[2] = {SOCKS_VER};
 			if (method_noauth_found) resp_buf[1] = AUTH_NO_AUTHENTICATION;
 			else                     resp_buf[1] = AUTH_NO_ACCEPTABLE_METHODS;
-			if (write_all(client_sockfd, resp_buf, sizeof(resp_buf))) return -2;
-			if (!method_noauth_found) return 1;
+			if (write_all(client_sockfd, resp_buf, sizeof(resp_buf))) return SOCKS5_RES_HANGUP;
+			if (!method_noauth_found) return SOCKS5_RES_REFUSED;
 
-			set_next_state(socks5_arg, STATE_AUTH_DONE);
-			break;
+			socks5_connect_init(socks5_arg);
+			return SOCKS5_RES_TASK;
 		}
+		default:
+			assert(0);
 	}
-	return 0;
 }
 
 typedef enum {
@@ -207,9 +241,9 @@ static int socks5_connect(socks5_arg_struct *socks5_arg) {
 			unsigned char cmd       = buffer[1];
 			unsigned char reserved  = buffer[2];
 			unsigned char addr_type = buffer[3];
-			if (ver != SOCKS_VER) return -1;
-			if (reserved != 0) return -1;
-			if (!(addr_type == ATYP_IPV4 || addr_type == ATYP_DOMAIN || addr_type == ATYP_IPV6)) return -1;
+			if (ver != SOCKS_VER) return SOCKS5_RES_WRONG_DATA;
+			if (reserved != 0) return SOCKS5_RES_WRONG_DATA;
+			if (!(addr_type == ATYP_IPV4 || addr_type == ATYP_DOMAIN || addr_type == ATYP_IPV6)) return SOCKS5_RES_WRONG_DATA;
 			
 			ctx->connect.cmd = cmd;
 			ctx->connect.addr_type = addr_type;
@@ -231,18 +265,18 @@ static int socks5_connect(socks5_arg_struct *socks5_arg) {
 					break;
 				}
 			}
-			break;
+			return SOCKS5_RES_TASK;
 		}
 		case STATE_CONNECT_ADDR_DOMAIN_LEN: {
 			socks5_context_union *ctx = get_ctx(socks5_arg);
 			unsigned char domain_name_len = ctx->connect.domain_name_len;
 			
-			if (domain_name_len == 0) return -1;
+			if (domain_name_len == 0) return SOCKS5_RES_WRONG_DATA;
 			assert(sizeof(char) == 1);
 			
 			read_shedule(socks5_arg, &ctx->connect.address.domain_name, domain_name_len);
 			set_next_state(socks5_arg, STATE_CONNECT_ADDR_DOMAIN_NAME);
-			break;
+			return SOCKS5_RES_TASK;
 		}
 		case STATE_CONNECT_ADDR_DOMAIN_NAME: {
 			socks5_context_union *ctx = get_ctx(socks5_arg);
@@ -253,7 +287,7 @@ static int socks5_connect(socks5_arg_struct *socks5_arg) {
 			socks5_context_union *ctx = get_ctx(socks5_arg);
 			read_shedule(socks5_arg, &ctx->connect.port, 2);
 			set_next_state(socks5_arg, STATE_CONNECT_PORT);
-			break;
+			return SOCKS5_RES_TASK;
 		}
 		case STATE_CONNECT_PORT: {
 			socks5_context_union *ctx = get_ctx(socks5_arg);
@@ -314,61 +348,36 @@ static int socks5_connect(socks5_arg_struct *socks5_arg) {
 				if (connect_sockfd != -1) {
 					if (close(connect_sockfd)) perror_and_exit("close");
 				}
-				return -2;
+				return SOCKS5_RES_HANGUP;
 			}
-			if (rep != REP_SUCCEEDED) return 1;
+			if (rep != REP_SUCCEEDED) return SOCKS5_RES_REFUSED;
 			
-			set_next_state(socks5_arg, STATE_CONNECT_DONE);
-			break;
-		}
-	}
-	return 0;
-}
-
-void socks5_clinet_init(socks5_arg_struct *socks5_arg, int client_sockfd) {
-	socks5_arg->client_sockfd = client_sockfd;
-	socks5_auth_init(socks5_arg);
-}
-
-static int socks5(socks5_arg_struct *socks5_arg) {
-	switch (get_state(socks5_arg)) {
-		case STATE_AUTH_HEADER:
-		case STATE_AUTH_METHODS: {
-			int res = socks5_auth(socks5_arg);
-			if (res) return -1;
-			if (get_next_state(socks5_arg) == STATE_AUTH_DONE) socks5_connect_init(socks5_arg);
-			break;
-		}
-		case STATE_CONNECT_HEADER:
-		case STATE_CONNECT_ADDR:
-		case STATE_CONNECT_ADDR_DOMAIN_LEN:
-		case STATE_CONNECT_ADDR_DOMAIN_NAME:
-		case STATE_CONNECT_PORT: {
-			int res = socks5_connect(socks5_arg);
-			if (res) return -1;
-			if (get_next_state(socks5_arg) == STATE_CONNECT_DONE) return 1;
-			break;
+			set_next_state(socks5_arg, STATE_DONE);
+			return SOCKS5_RES_DONE;
 		}
 		default:
 			assert(0);
 	}
-	return 0;
 }
 
-static ssize_t do_read_task(read_task_struct *read_task, int fd) {
-	assert (read_task->count > 0);
-	ssize_t read_bytes = read_wrapper(fd, read_task->buf, read_task->count);
-	assert(read_bytes != 0);
-	if (read_bytes < 0) return read_bytes;
-	read_task->buf   += read_bytes;
-	read_task->count -= read_bytes;
-	return read_task->count;
+void socks5_init(socks5_arg_struct *socks5_arg, int client_sockfd) {
+	set_client_sockfd(socks5_arg, client_sockfd);
+	socks5_auth_init(socks5_arg);
 }
 
-int socks5_client_read_cb(socks5_arg_struct *socks5_arg) {
-	ssize_t remain_bytes = do_read_task(&socks5_arg->read_task, socks5_arg->client_sockfd);
-	if (remain_bytes < 0) return remain_bytes;
-	if (remain_bytes > 0) return 0;
-	return socks5(socks5_arg);
+int socks5(socks5_arg_struct *socks5_arg) {
+	switch (get_state(socks5_arg)) {
+		case STATE_AUTH_HEADER:
+		case STATE_AUTH_METHODS:
+			return socks5_auth(socks5_arg);
+		case STATE_CONNECT_HEADER:
+		case STATE_CONNECT_ADDR:
+		case STATE_CONNECT_ADDR_DOMAIN_LEN:
+		case STATE_CONNECT_ADDR_DOMAIN_NAME:
+		case STATE_CONNECT_PORT:
+			return socks5_connect(socks5_arg);
+		default:
+			assert(0);
+	}
 }
 
