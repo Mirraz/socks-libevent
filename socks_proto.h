@@ -1,10 +1,9 @@
-#ifndef SOCKS_SERVER_HANDLE_CLIENT_H
-#define SOCKS_SERVER_HANDLE_CLIENT_H
+#ifndef SOCKS_PROTO_H
+#define SOCKS_PROTO_H
 
 #include <stdint.h>
-#include <stddef.h>
 
-#include "common.h"
+#include "task.h"
 
 typedef union {
 	uint8_t ipv4[4];
@@ -32,12 +31,12 @@ typedef union {
 
 typedef struct {
 	task_struct task;
+	int client_sockfd;
+	int connect_sockfd;
 	struct {
-		int client_sockfd;
-		int connect_sockfd;
 		socks5_state_type state;
 		socks5_context_union ctx;
-	} socks5;
+	} socks5_ctx;
 } socks5_arg_struct;
 
 typedef enum {
@@ -55,5 +54,5 @@ int get_client_sockfd(socks5_arg_struct *socks5_arg);
 int get_connect_sockfd(socks5_arg_struct *socks5_arg);
 task_struct *get_task(socks5_arg_struct *socks5_arg);
 
-#endif/*SOCKS_SERVER_HANDLE_CLIENT_H*/
+#endif/*SOCKS_PROTO_H*/
 

@@ -14,40 +14,40 @@
 #include <netinet/in.h>
 
 #include "socks_proto.h"
-#include "common.h"
+#include "task.h"
 
 
 
 static inline socks5_state_type get_state(socks5_arg_struct *socks5_arg) {
-	return socks5_arg->socks5.state;
+	return socks5_arg->socks5_ctx.state;
 }
 
 static inline void set_next_state(socks5_arg_struct *socks5_arg, socks5_state_type state) {
-	socks5_arg->socks5.state = state;
+	socks5_arg->socks5_ctx.state = state;
 }
 
 static inline socks5_state_type get_next_state(socks5_arg_struct *socks5_arg) {
-	return socks5_arg->socks5.state;
+	return socks5_arg->socks5_ctx.state;
 }
 
 static inline socks5_context_union* get_ctx(socks5_arg_struct *socks5_arg) {
-	return &socks5_arg->socks5.ctx;
+	return &socks5_arg->socks5_ctx.ctx;
 }
 
 int get_client_sockfd(socks5_arg_struct *socks5_arg) {
-	return socks5_arg->socks5.client_sockfd;
+	return socks5_arg->client_sockfd;
 }
 
 static inline void set_client_sockfd(socks5_arg_struct *socks5_arg, int client_sockfd) {
-	socks5_arg->socks5.client_sockfd = client_sockfd;
+	socks5_arg->client_sockfd = client_sockfd;
 }
 
 int get_connect_sockfd(socks5_arg_struct *socks5_arg) {
-	return socks5_arg->socks5.connect_sockfd;
+	return socks5_arg->connect_sockfd;
 }
 
 static inline void set_connect_sockfd(socks5_arg_struct *socks5_arg, int connect_sockfd) {
-	socks5_arg->socks5.connect_sockfd = connect_sockfd;
+	socks5_arg->connect_sockfd = connect_sockfd;
 }
 
 task_struct *get_task(socks5_arg_struct *socks5_arg) {
@@ -74,6 +74,35 @@ static inline void connect_shedule(socks5_arg_struct *socks5_arg, int sockfd, co
 	task->type = TASK_CONNECT;
 	fill_connect_task(&task->data.connect_task, sockfd, addr, addrlen);
 }
+
+
+
+/********************/
+ssize_t write_wrapper(int fd, const void *buf, size_t count) {
+	ssize_t write_bytes = write(fd, buf, count);
+	if (write_bytes < 0) {
+		if (errno == ECONNRESET) return -1;
+		else {perror("write"); exit(1);}
+	}
+	if (write_bytes == 0) return -1;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsign-compare"
+	assert(write_bytes <= count);
+#pragma GCC diagnostic pop
+	return write_bytes;
+}
+
+int write_all(int fd, const void *buf, size_t count) {
+	ssize_t write_bytes;
+	while (count > 0) {
+		write_bytes = write_wrapper(fd, buf, count);
+		if (write_bytes <= 0) return -1;
+		buf   += write_bytes;
+		count -= write_bytes;
+	}
+	return 0;
+}
+/********************/
 
 
 
@@ -176,7 +205,7 @@ static int make_sockaddr(unsigned char addr_type, address_union *address, unsign
 	switch (addr_type) {
 		case ATYP_IPV4: {
 			struct sockaddr_in *connect_sin = malloc(sizeof(struct sockaddr_in));
-			if (connect_sin == NULL) perror_and_exit("malloc");
+			if (connect_sin == NULL) {perror("malloc"); exit(1);} // TODO
 			memset(connect_sin, 0, sizeof(struct sockaddr_in));
 			connect_sin->sin_family = AF_INET;
 			connect_sin->sin_port = htons(port);
@@ -187,7 +216,7 @@ static int make_sockaddr(unsigned char addr_type, address_union *address, unsign
 		}
 		case ATYP_IPV6: {
 			struct sockaddr_in6 *connect_sin6 = malloc(sizeof(struct sockaddr_in6));
-			if (connect_sin6 == NULL) perror_and_exit("malloc");
+			if (connect_sin6 == NULL) {perror("malloc"); exit(1);} // TODO
 			memset(connect_sin6, 0, sizeof(struct sockaddr_in6));
 			connect_sin6->sin6_family = AF_INET6;
 			connect_sin6->sin6_port = htons(port);
@@ -210,11 +239,11 @@ static int make_sockaddr(unsigned char addr_type, address_union *address, unsign
 			struct addrinfo *res;
 			int ret = getaddrinfo(address->domain_name, port_str, &hints, &res);
 			if (ret == EAI_NONAME || ret == EAI_NODATA ) return REP_HOST_UNREACHABLE;
-			else if (ret != 0) printf_and_exit("getaddrinfo: %s", gai_strerror(ret));
+			else if (ret != 0) {printf("getaddrinfo: %s", gai_strerror(ret)); exit(1);}
 			
 			unsigned int addr_len = res->ai_addrlen;
 			struct sockaddr *addr = malloc(addr_len);
-			if (addr == NULL) perror_and_exit("malloc");
+			if (addr == NULL) {perror("malloc"); exit(1);} // TODO
 			memcpy(addr, res->ai_addr, addr_len);
 			freeaddrinfo(res);
 			*addr_p = addr;
@@ -317,7 +346,7 @@ static int socks5_connect(socks5_arg_struct *socks5_arg) {
 					rep = ret;
 				} else {
 					connect_sockfd = socket(connect_addr->sa_family, SOCK_STREAM, 0);
-					if (connect_sockfd < 0) perror_and_exit("socket");
+					if (connect_sockfd < 0) {perror("socket"); exit(1);} // TODO
 					
 					if (connect(connect_sockfd, connect_addr, connect_addr_len)) {
 						if (errno == ECONNREFUSED || errno == ENETUNREACH || errno == ETIMEDOUT) {
@@ -332,8 +361,8 @@ static int socks5_connect(socks5_arg_struct *socks5_arg) {
 									rep = REP_NETWORK_UNREACHABLE;
 									break;
 							}
-							if (close(connect_sockfd)) perror_and_exit("close");
-						} else perror_and_exit("connect");
+							if (close(connect_sockfd)) {perror("close"); exit(1);} // TODO
+						} else {perror("connect"); exit(1);} // TODO
 					} else {
 						set_connect_sockfd(socks5_arg, connect_sockfd);
 					}
@@ -346,7 +375,7 @@ static int socks5_connect(socks5_arg_struct *socks5_arg) {
 			resp_buf[1] = rep;
 			if (write_all(client_sockfd, resp_buf, sizeof(resp_buf))) {
 				if (connect_sockfd != -1) {
-					if (close(connect_sockfd)) perror_and_exit("close");
+					if (close(connect_sockfd)) {perror("close"); exit(1);} // TODO
 				}
 				return SOCKS5_RES_HANGUP;
 			}
