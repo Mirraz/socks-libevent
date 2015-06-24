@@ -29,7 +29,7 @@ $(BUILD_DIR)/main_loop.o: $(SRC_DIR)/main_loop.c $(SRC_DIR)/handle_client.h $(SR
 $(BUILD_DIR)/handle_client.o: $(SRC_DIR)/handle_client.c $(SRC_DIR)/handle_client.h $(SRC_DIR)/socks_proto.h $(SRC_DIR)/task.h Makefile
 	$(CC) -o $@ $< -c $(CFLAGS)
 
-$(BUILD_DIR)/socks_proto.o: $(SRC_DIR)/socks_proto.c $(SRC_DIR)/socks_proto.h $(SRC_DIR)/task.h Makefile
+$(BUILD_DIR)/socks_proto.o: $(SRC_DIR)/socks_proto.c $(SRC_DIR)/socks_proto.h $(SRC_DIR)/task.h $(SRC_DIR)/common.h Makefile
 	$(CC) -o $@ $< -c $(CFLAGS)
 
 $(BUILD_DIR)/task.o: $(SRC_DIR)/task.c $(SRC_DIR)/task.h Makefile

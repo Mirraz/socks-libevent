@@ -8,25 +8,52 @@
 typedef union {
 	uint8_t ipv4[4];
 	uint8_t ipv6[16];
-	char domain_name[256]; // 255 + 1 for ending '\0'
-} address_union;
+	struct {
+		char name[256];  // 255 + 1 for ending '\0'
+		uint8_t name_len;
+	} domain;
+} host_union;
 
 typedef unsigned int socks5_state_type;
 
 typedef union {
-	uint8_t auth_header[2];
+	uint8_t header[2];
 	struct {
 		uint8_t methods[256];
 		unsigned char nmethods;
-	} auth;
-	uint8_t connect_header[4];
+	} methods;
+	uint8_t response[2];
+} auth_context_union;
+
+typedef union {
+	uint8_t header[4];
 	struct {
-		address_union address;
-		uint16_t port;
-		uint8_t domain_name_len;
 		unsigned char cmd;
-		unsigned char addr_type;
-	} connect;
+		unsigned char rep;
+		union {
+			struct {
+				host_union host;
+				uint16_t port;
+				unsigned char addr_type;
+			} request_addr;
+			struct {
+				char domain_name[256];
+				char port_str[6];			// max len = 5 (for 65535) +1 for ending '\0'
+				struct addrinfo hints;
+				struct addrinfo *res;
+			} getaddrinfo_args;
+			struct {
+				struct sockaddr addr;
+				socklen_t addr_len;
+			} connect_addr;
+		} conn;
+	} req;
+	uint8_t response[10];
+} request_context_union;
+
+typedef union {
+	auth_context_union auth;
+	request_context_union req;
 } socks5_context_union;
 
 typedef struct {
@@ -45,6 +72,7 @@ typedef enum {
 	SOCKS5_RES_WRONG_DATA,
 	SOCKS5_RES_REFUSED,
 	SOCKS5_RES_HANGUP,
+	SOCKS5_RES_AGAIN,
 	SOCKS5_RES_DONE,
 } socks5_result_enum;
 

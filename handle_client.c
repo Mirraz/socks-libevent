@@ -153,7 +153,7 @@ static void sock5_proto_wrapper(client_data_struct *client_data) {
 				int shedule_res = shedule_task(client_data);
 				if (shedule_res < 0) {destruct(client_data); return;}
 				if (shedule_res > 0) return;
-				break;
+				break; // continue loop
 			}
 			case SOCKS5_RES_ERROR:
 			case SOCKS5_RES_WRONG_DATA:
@@ -169,6 +169,8 @@ static void sock5_proto_wrapper(client_data_struct *client_data) {
 				printf("TODO: start transfer\n"); exit(1);
 				return;
 			}
+			case SOCKS5_RES_AGAIN:
+				break; // continue loop
 			default:
 				assert(0);
 		}

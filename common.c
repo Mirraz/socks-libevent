@@ -1,7 +1,17 @@
+#include <stdio.h>
+#include <stdarg.h>
 #include <unistd.h>
 #include <fcntl.h>
 
 #include "common.h"
+
+void printf_err(const char *format, ...) {
+	va_list arglist;
+	va_start(arglist, format);
+	vfprintf(stderr, format, arglist);
+	va_end(arglist);
+	fprintf(stderr, "\n");
+}
 
 int make_socket_nonblocking(int fd) {
 	int flags;
