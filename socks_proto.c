@@ -402,6 +402,7 @@ static int socks5_req(socks5_arg_struct *socks5_arg) {
 			
 			int connect_sockfd = socket(addr->sa_family, SOCK_STREAM, 0);
 			if (connect_sockfd < 0) {perror("socket"); return SOCKS5_RES_ERROR;}
+			if (make_socket_nonblocking(connect_sockfd)) {perror("fcntl"); return SOCKS5_RES_ERROR;}
 			set_connect_sockfd(socks5_arg, connect_sockfd);
 			
 			connect_shedule(socks5_arg, connect_sockfd, addr, addr_len);
@@ -554,6 +555,8 @@ int socks5(socks5_arg_struct *socks5_arg) {
 	int res = socks5_impl(socks5_arg);
 	socks5_state_type end_state = get_state(socks5_arg);
 	//printf("%s\t%s\t%s\n", state_str(begin_state), res_str(res), state_str(end_state));
+	(void)begin_state;
+	(void)end_state;
 	return res;
 }
 

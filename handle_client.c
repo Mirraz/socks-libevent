@@ -7,8 +7,10 @@
 #include <unistd.h>
 
 #include "handle_client.h"
-#include "task.h"
+#include "transfer.h"
 #include "socks_proto.h"
+#include "task.h"
+#include "common.h"
 
 typedef struct {
 	struct event_base *base;
@@ -25,8 +27,8 @@ typedef struct {
 	socks5_arg_struct socks5_arg;
 } client_data_struct;
 
-static void everror(const char *s) { // TODO
-	fprintf(stderr, "%s\n", s);
+static void destruct_no_close(client_data_struct *client_data) {
+	free(client_data);
 }
 
 static void destruct(client_data_struct *client_data) {
@@ -36,7 +38,7 @@ static void destruct(client_data_struct *client_data) {
 	if (connect_sockfd >= 0) {
 		if (close(connect_sockfd)) perror("close");
 	}
-	free(client_data);
+	destruct_no_close(client_data);
 }
 
 static void sock5_proto_wrapper(client_data_struct *client_data);
@@ -163,10 +165,12 @@ static void sock5_proto_wrapper(client_data_struct *client_data) {
 				return;
 			}
 			case SOCKS5_RES_DONE: {
+				int client_sockfd = get_client_sockfd(&client_data->socks5_arg);
 				int connect_sockfd = get_connect_sockfd(&client_data->socks5_arg);
-				(void)connect_sockfd;
-				// TODO: start transfer
-				printf("TODO: start transfer\n"); exit(1);
+				assert(connect_sockfd >= 0);
+				struct event_base *base = client_data->base;
+				destruct_no_close(client_data);
+				transfer_construct_and_run(base, client_sockfd, connect_sockfd);
 				return;
 			}
 			case SOCKS5_RES_AGAIN:
@@ -194,8 +198,8 @@ void client_handler_construct_and_run(struct event_base *base, struct evdns_base
 	sock5_proto_wrapper(client_data);
 }
 
-void client_handler_destruct(void *arg) {
-	// TODO: break, del & free continued event
-	destruct((client_data_struct *)arg);
+void client_handler_destruct_all(struct event_base *base) {
+	// TODO
+	(void)base;
 }
 

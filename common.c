@@ -5,6 +5,10 @@
 
 #include "common.h"
 
+void everror(const char *s) { // TODO
+	fprintf(stderr, "%s\n", s);
+}
+
 void printf_err(const char *format, ...) {
 	va_list arglist;
 	va_start(arglist, format);
