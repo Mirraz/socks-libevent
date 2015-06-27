@@ -196,6 +196,7 @@ static int socks5_auth(socks5_arg_struct *socks5_arg) {
 		}
 		default:
 			assert(0);
+			return SOCKS5_RES_ERROR;
 	}
 }
 
@@ -270,6 +271,7 @@ static int socks5_req(socks5_arg_struct *socks5_arg) {
 				}
 				default:
 					assert(0);
+					return SOCKS5_RES_ERROR;
 			}
 			return SOCKS5_RES_TASK;
 		}
@@ -424,6 +426,9 @@ static int socks5_req(socks5_arg_struct *socks5_arg) {
 					case ENETUNREACH:
 						rep = REP_NETWORK_UNREACHABLE;
 						break;
+					default:
+						assert(0);
+						return SOCKS5_RES_ERROR;
 				}
 				ctx->req.req.rep = rep;
 				set_next_state(socks5_arg, STATE_REQ_RESPONSE_LABEL);
@@ -460,6 +465,7 @@ static int socks5_req(socks5_arg_struct *socks5_arg) {
 		}
 		default:
 			assert(0);
+			return SOCKS5_RES_ERROR;
 	}
 }
 
@@ -489,6 +495,7 @@ int socks5_impl(socks5_arg_struct *socks5_arg) {
 			return socks5_req(socks5_arg);
 		default:
 			assert(0);
+			return SOCKS5_RES_ERROR;
 	}
 }
 
@@ -526,6 +533,7 @@ const char *state_str(socks5_state_type state) {
 			return "STATE_DONE";
 		default:
 			assert(0);
+			return NULL;
 	}
 }
 
@@ -547,16 +555,21 @@ const char *res_str(int res) {
 			return "SOCKS5_RES_DONE";
 		default:
 			assert(0);
+			return NULL;
 	}
 }
 
 int socks5(socks5_arg_struct *socks5_arg) {
+#ifndef NDEBUG
 	socks5_state_type begin_state = get_state(socks5_arg);
+#endif
 	int res = socks5_impl(socks5_arg);
+#ifndef NDEBUG
 	socks5_state_type end_state = get_state(socks5_arg);
 	//printf("%s\t%s\t%s\n", state_str(begin_state), res_str(res), state_str(end_state));
 	(void)begin_state;
 	(void)end_state;
+#endif
 	return res;
 }
 

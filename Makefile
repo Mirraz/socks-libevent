@@ -2,11 +2,11 @@ CC=gcc
 LD=gcc
 STRIP=true
 WARNINGS=-Wall -Wextra
-COPTIM=-ggdb
+COPTIM=-march=native -mfpmath=sse,387 -O2 -fomit-frame-pointer -pipe -ggdb
 DEFINES=
 INCLUDES=
 CFLAGS=$(WARNINGS) $(COPTIM) $(DEFINES) $(INCLUDES)
-LDOPTIM=-ggdb
+LDOPTIM=-Wl,-O1 -Wl,--as-needed -ggdb
 LIBFILES=-levent_core -levent_extra
 LDFLAGS=$(WARNINGS) $(LDOPTIM) $(LIBFILES)
 SRC_DIR=.

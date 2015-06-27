@@ -10,7 +10,7 @@
 #include "transfer.h"
 #include "common.h"
 
-#define buffer_size (1024*1024)
+#define buffer_size (64*1024)
 
 struct transfer_struct_;
 typedef struct transfer_struct_ transfer_struct;

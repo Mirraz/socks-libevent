@@ -144,6 +144,7 @@ static int shedule_task(client_data_struct *client_data) {
 		}
 		default:
 			assert(0);
+			return -1;
 	}
 }
 
@@ -177,6 +178,7 @@ static void sock5_proto_wrapper(client_data_struct *client_data) {
 				break; // continue loop
 			default:
 				assert(0);
+				destruct(client_data); return;
 		}
 	}
 }
