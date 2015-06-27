@@ -6,8 +6,7 @@
 #include <sys/socket.h>
 
 #include "task.h"
-
-
+#include "common.h"
 
 void fill_read_task(read_task_struct *read_task, int fd, void *buf, size_t count) {
 	read_task->fd = fd;
@@ -15,27 +14,19 @@ void fill_read_task(read_task_struct *read_task, int fd, void *buf, size_t count
 	read_task->count = count;
 }
 
+/* return:
+	-1 -- failed                    task->ret = errno
+	 0 -- read all                  task->ret = 0
+	 1 -- read not all, try again   task->ret not seted
+*/
 int continue_read_task(read_task_struct *task) {
 	assert(task->count > 0);
-	ssize_t bytes = read(task->fd, task->buf, task->count);
+	ssize_t bytes = read_wrapper(task->fd, task->buf, task->count);
 	if (bytes < 0) {
-		switch (errno) {
-			case EAGAIN:
-#if EAGAIN != EWOULDBLOCK
-			case EWOULDBLOCK:
-#endif
-				return 1;
-			case ECONNRESET:
-				task->ret = errno;
-				return -1;
-			default:
-				perror("read");
-				task->ret = errno;
-				return -1;
-		}
-	} else if (bytes == 0) {
-		task->ret = ECONNRESET;
+		task->ret = bytes;
 		return -1;
+	} else if (bytes == 0) {
+		return 1;
 	} else {
 		assert(bytes <= (ssize_t)(task->count));
 		task->buf   += bytes;
@@ -61,27 +52,19 @@ void fill_write_task(write_task_struct *write_task, int fd, void *buf, size_t co
 	write_task->count = count;
 }
 
+/* return:
+	-1 -- failed                     task->ret = errno
+	 0 -- write all                  task->ret = 0
+	 1 -- write not all, try again   task->ret not seted
+*/
 int continue_write_task(write_task_struct *task) {
 	assert(task->count > 0);
-	ssize_t bytes = write(task->fd, task->buf, task->count);
+	ssize_t bytes = write_wrapper(task->fd, task->buf, task->count);
 	if (bytes < 0) {
-		switch (errno) {
-			case EAGAIN:
-#if EAGAIN != EWOULDBLOCK
-			case EWOULDBLOCK:
-#endif
-				return 1;
-			case ECONNRESET:
-				task->ret = errno;
-				return -1;
-			default:
-				perror("write");
-				task->ret = errno;
-				return -1;
-		}
-	} else if (bytes == 0) {
-		task->ret = ECONNRESET;
+		task->ret = bytes;
 		return -1;
+	} else if (bytes == 0) {
+		return 1;
 	} else {
 		assert(bytes <= (ssize_t)(task->count));
 		task->buf   += bytes;
@@ -140,12 +123,22 @@ static int handle_connect_err(connect_task_struct *connect_task, int err) {
 	}
 }
 
+/* return:
+	-1 -- failed                         connect_task->ret = errno
+	 0 -- succeeded                      connect_task->ret = 0
+	 1 -- not completed yet, try again   connect_task->ret not seted
+*/
 int first_try_connect_task(connect_task_struct *connect_task) {
 	int err = connect(connect_task->sockfd, connect_task->addr, connect_task->addrlen);
 	if (err) err = errno;
 	return handle_connect_err(connect_task, err);
 }
 
+/* return:
+	-1 -- failed                         connect_task->ret = errno
+	 0 -- succeeded                      connect_task->ret = 0
+	 1 -- not completed yet, try again   connect_task->ret not seted
+*/
 int continue_connect_task(connect_task_struct *connect_task) {
 	int err;
 	socklen_t err_len = sizeof(err);

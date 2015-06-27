@@ -35,7 +35,7 @@ $(BUILD_DIR)/handle_client.o: $(SRC_DIR)/handle_client.c $(SRC_DIR)/handle_clien
 $(BUILD_DIR)/socks_proto.o: $(SRC_DIR)/socks_proto.c $(SRC_DIR)/socks_proto.h $(SRC_DIR)/task.h $(SRC_DIR)/common.h Makefile
 	$(CC) -o $@ $< -c $(CFLAGS)
 
-$(BUILD_DIR)/task.o: $(SRC_DIR)/task.c $(SRC_DIR)/task.h Makefile
+$(BUILD_DIR)/task.o: $(SRC_DIR)/task.c $(SRC_DIR)/task.h $(SRC_DIR)/common.h Makefile
 	$(CC) -o $@ $< -c $(CFLAGS)
 
 $(BUILD_DIR)/common.o: $(SRC_DIR)/common.c $(SRC_DIR)/common.h Makefile

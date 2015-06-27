@@ -43,60 +43,6 @@ static void destruct(transfer_struct *transfer) {
 	}
 }
 
-/* return:
-	< 0 -- -errno
-	= 0 -- read returned EAGAIN
-	> 0 -- read bytes
-*/
-static ssize_t read_wrapper(int fd, void *buf, size_t count) {
-	ssize_t bytes = read(fd, buf, count);
-	if (bytes < 0) {
-		switch (errno) {
-			case EAGAIN:
-#if EAGAIN != EWOULDBLOCK
-			case EWOULDBLOCK:
-#endif
-				return 0;
-			case ECONNRESET:
-				return -errno;
-			default:
-				perror("read");
-				return -errno;
-		}
-	} else if (bytes == 0) {
-		return -ECONNRESET;
-	} else {
-		return bytes;
-	}
-}
-
-/* return:
-	< 0 -- -errno
-	= 0 -- write returned EAGAIN
-	> 0 -- write bytes
-*/
-static ssize_t write_wrapper(int fd, void *buf, size_t count) {
-	ssize_t bytes = write(fd, buf, count);
-	if (bytes < 0) {
-		switch (errno) {
-			case EAGAIN:
-#if EAGAIN != EWOULDBLOCK
-			case EWOULDBLOCK:
-#endif
-				return 0;
-			case ECONNRESET:
-				return -errno;
-			default:
-				perror("write");
-				return -errno;
-		}
-	} else if (bytes == 0) {
-		return -ECONNRESET;
-	} else {
-		return bytes;
-	}
-}
-
 /*
 [hb .  .  .  .  .  .  .  .  he .  . ]
                             tb

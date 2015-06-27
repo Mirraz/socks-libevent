@@ -53,7 +53,7 @@ static void client_read_cb(evutil_socket_t sockfd, short ev_flag, void *arg) {
 	assert(tsk->fd == sockfd);
 	if (continue_read_task(tsk) <= 0) {
 		struct event *event = client_data->events.read;
-		if (event_del(event)) {everror("event_del"); event_free(event); destruct(client_data); return;}
+		if (event_del(event)) {everror("event_del"); event_free(event); destruct(client_data); return;} // TODO: don't del
 		event_free(event);
 		sock5_proto_wrapper(client_data);
 	}
@@ -102,6 +102,11 @@ static void getaddrinfo_cb(int result, struct evutil_addrinfo *res, void *arg) {
 		sock5_proto_wrapper(client_data);
 }
 
+/* return:
+	-1 -- error (internal, not task error)
+	 0 -- task already completed (with success or error)
+	 1 -- task sheduled
+*/
 static int shedule_task(client_data_struct *client_data) {
 	task_struct *task = get_task(&client_data->socks5_arg);
 	switch (task->type) {
