@@ -161,6 +161,7 @@ static int write_data(int sockfd, transfer_struct *transfer) {
 
 static void read_cb(evutil_socket_t sockfd, short ev_flag, void *arg) {
 	assert(ev_flag == EV_READ);
+	(void)ev_flag;
 	transfer_struct *transfer = (transfer_struct *)arg;
 	assert(transfer->fd == sockfd);
 	assert(is_not_full(transfer));
@@ -188,6 +189,7 @@ static void read_cb(evutil_socket_t sockfd, short ev_flag, void *arg) {
 
 static void write_cb(evutil_socket_t sockfd, short ev_flag, void *arg) {
 	assert(ev_flag == EV_WRITE);
+	(void)ev_flag;
 	transfer_struct *transfer = (transfer_struct *)arg;
 	assert(transfer->reverse_transfer->fd == sockfd);
 	assert(is_not_empty(transfer));

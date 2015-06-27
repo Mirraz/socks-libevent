@@ -499,6 +499,7 @@ int socks5_impl(socks5_arg_struct *socks5_arg) {
 	}
 }
 
+#ifndef NDEBUG
 const char *state_str(socks5_state_type state) {
 	switch (state) {
 		case STATE_AUTH_HEADER:
@@ -558,6 +559,7 @@ const char *res_str(int res) {
 			return NULL;
 	}
 }
+#endif
 
 int socks5(socks5_arg_struct *socks5_arg) {
 #ifndef NDEBUG

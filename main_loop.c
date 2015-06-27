@@ -40,6 +40,7 @@ typedef struct {
 void signal_cb(evutil_socket_t signum, short ev_flag, void *arg) {
 	signal_cb_arg_struct *signal_cb_arg = (signal_cb_arg_struct *)arg;
 	assert(ev_flag == EV_SIGNAL);
+	(void)ev_flag;
 	switch(signum) {
 		case SIGINT: {
 			if (event_base_loopbreak(signal_cb_arg->base)) everror_and_exit("event_base_loopbreak");
@@ -56,6 +57,7 @@ typedef struct {
 void server_accept_cb(evutil_socket_t server_sockfd, short ev_flag, void *arg) {
 	server_accept_cb_arg_struct *server_accept_cb_arg = (server_accept_cb_arg_struct *)arg;
 	assert(ev_flag == EV_READ);
+	(void)ev_flag;
 	
 	struct sockaddr_in client_sin;
 	socklen_t client_sin_len = sizeof(client_sin);

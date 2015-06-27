@@ -45,12 +45,14 @@ static void sock5_proto_wrapper(client_data_struct *client_data);
 
 static void client_read_cb(evutil_socket_t sockfd, short ev_flag, void *arg) {
 	assert(ev_flag == EV_READ);
+	(void)ev_flag;
 	client_data_struct *client_data = (client_data_struct *)arg;
 	assert(get_client_sockfd(&client_data->socks5_arg) == sockfd);
 	task_struct *task = get_task(&client_data->socks5_arg);
 	assert(task->type == TASK_READ);
 	read_task_struct *tsk = &task->data.read_task;
 	assert(tsk->fd == sockfd);
+	(void)sockfd;
 	if (continue_read_task(tsk) <= 0) {
 		struct event *event = client_data->events.read;
 		if (event_del(event)) {everror("event_del"); event_free(event); destruct(client_data); return;} // TODO: don't del
@@ -61,12 +63,14 @@ static void client_read_cb(evutil_socket_t sockfd, short ev_flag, void *arg) {
 
 static void client_write_cb(evutil_socket_t sockfd, short ev_flag, void *arg) {
 	assert(ev_flag == EV_WRITE);
+	(void)ev_flag;
 	client_data_struct *client_data = (client_data_struct *)arg;
 	assert(get_client_sockfd(&client_data->socks5_arg) == sockfd);
 	task_struct *task = get_task(&client_data->socks5_arg);
 	assert(task->type == TASK_WRITE);
 	write_task_struct *tsk = &task->data.write_task;
 	assert(tsk->fd == sockfd);
+	(void)sockfd;
 	if (continue_write_task(tsk) <= 0) {
 		struct event *event = client_data->events.write;
 		if (event_del(event)) {everror("event_del"); event_free(event); destruct(client_data); return;}
@@ -77,12 +81,14 @@ static void client_write_cb(evutil_socket_t sockfd, short ev_flag, void *arg) {
 
 static void connect_write_cb(evutil_socket_t sockfd, short ev_flag, void *arg) {
 	assert(ev_flag == EV_WRITE);
+	(void)ev_flag;
 	client_data_struct *client_data = (client_data_struct *)arg;
 	assert(get_connect_sockfd(&client_data->socks5_arg) == sockfd);
 	task_struct *task = get_task(&client_data->socks5_arg);
 	assert(task->type == TASK_CONNECT);
 	connect_task_struct *tsk = &task->data.connect_task;
 	assert(tsk->sockfd == sockfd);
+	(void)sockfd;
 	if (continue_connect_task(tsk) <= 0) {
 		struct event *event = client_data->events.connect_write;
 		if (event_del(event)) {everror("event_del"); event_free(event); destruct(client_data); return;}
