@@ -217,13 +217,14 @@ static void read_cb(evutil_socket_t sockfd, short ev_flag, void *arg) {
 	assert(ev_flag == EV_READ);
 	transfer_struct *transfer = (transfer_struct *)arg;
 	assert(transfer->fd == sockfd);
+	assert(is_not_full(transfer));
 	
 	{
 		int ret = read_data(sockfd, transfer);
 		if (ret < 0) {destruct(transfer); return;}
 	}
 	
-	if (!transfer->event_write_active) {
+	if (!transfer->event_write_active && is_not_empty(transfer)) {
 		int ret = write_data(transfer->reverse_transfer->fd, transfer);
 		if (ret < 0) {
 			destruct(transfer); return;
@@ -243,13 +244,14 @@ static void write_cb(evutil_socket_t sockfd, short ev_flag, void *arg) {
 	assert(ev_flag == EV_WRITE);
 	transfer_struct *transfer = (transfer_struct *)arg;
 	assert(transfer->reverse_transfer->fd == sockfd);
+	assert(is_not_empty(transfer));
 	
 	{
 		int ret = write_data(sockfd, transfer);
 		if (ret < 0) destruct(transfer);
 	}
 	
-	if (!transfer->event_read_active) {
+	if (!transfer->event_read_active && is_not_full(transfer)) {
 		int ret = read_data(transfer->reverse_transfer->fd, transfer);
 		if (ret < 0) {
 			destruct(transfer); return;
