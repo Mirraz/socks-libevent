@@ -23,7 +23,7 @@ $(EXECUTABLE): $(BUILD_DIR)/main_loop.o $(BUILD_DIR)/transfer.o $(BUILD_DIR)/han
 	$(LD) -o $@ $^ $(LDFLAGS)
 	$(STRIP) $@
 
-$(BUILD_DIR)/main_loop.o: $(SRC_DIR)/main_loop.c $(SRC_DIR)/handle_client.h $(SRC_DIR)/common.h Makefile
+$(BUILD_DIR)/main_loop.o: $(SRC_DIR)/main_loop.c $(SRC_DIR)/transfer.h $(SRC_DIR)/handle_client.h $(SRC_DIR)/common.h Makefile
 	$(CC) -o $@ $< -c $(CFLAGS)
 
 $(BUILD_DIR)/transfer.o: $(SRC_DIR)/transfer.c $(SRC_DIR)/transfer.h $(SRC_DIR)/common.h Makefile

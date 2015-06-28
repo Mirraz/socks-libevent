@@ -1,9 +1,7 @@
 #include <event2/event.h>
 #include <event2/dns.h>
-#include <event2/util.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
 #include <stdarg.h>
 #include <assert.h>
 #include <unistd.h>
@@ -12,6 +10,7 @@
 #include <netinet/in.h>
 #include <signal.h>
 
+#include "transfer.h"
 #include "handle_client.h"
 #include "common.h"
 
@@ -35,27 +34,30 @@ void everror_and_exit(const char *s) {
 
 typedef struct {
 	struct event_base *base;
-} signal_cb_arg_struct;
+	struct evdns_base *dns_base;
+} bases_struct;
+
+typedef struct {
+	int server_sockfd;
+	bases_struct bases;
+	struct event *int_signal_event;
+	struct event *server_event;
+} global_resources_struct;
 
 void signal_cb(evutil_socket_t signum, short ev_flag, void *arg) {
-	signal_cb_arg_struct *signal_cb_arg = (signal_cb_arg_struct *)arg;
+	struct event_base *base = (struct event_base *)arg;
 	assert(ev_flag == EV_SIGNAL);
 	(void)ev_flag;
 	switch(signum) {
 		case SIGINT: {
-			if (event_base_loopbreak(signal_cb_arg->base)) everror_and_exit("event_base_loopbreak");
+			if (event_base_loopbreak(base)) {everror("event_base_loopbreak"); return;}
 			break;
 		}
 	}
 }
 
-typedef struct {
-	struct event_base *base;
-	struct evdns_base *dns_base;
-} server_accept_cb_arg_struct;
-
 void server_accept_cb(evutil_socket_t server_sockfd, short ev_flag, void *arg) {
-	server_accept_cb_arg_struct *server_accept_cb_arg = (server_accept_cb_arg_struct *)arg;
+	bases_struct *bases = (bases_struct *)arg;
 	assert(ev_flag == EV_READ);
 	(void)ev_flag;
 	
@@ -70,7 +72,7 @@ void server_accept_cb(evutil_socket_t server_sockfd, short ev_flag, void *arg) {
 		return;
 	}
 	
-	client_handler_construct_and_run(server_accept_cb_arg->base, server_accept_cb_arg->dns_base, client_sockfd);
+	client_handler_construct_and_run(bases->base, bases->dns_base, client_sockfd);
 }
 
 // TODO
@@ -125,10 +127,7 @@ void free_all_client_read_events(struct event_base *base) {
 }
 */
 
-#define MAXPENDING 5
-
-void run() {
-	/* setup server socket */
+void setup_server_socket(global_resources_struct *global_resources) {
 	unsigned int port = 9091;
 
 	int server_sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -144,41 +143,61 @@ void run() {
 	};
 	if (bind(server_sockfd, (const struct sockaddr*) &server_sin, sizeof(server_sin))) perror_and_exit("bind");
 	
-	if (listen(server_sockfd, MAXPENDING)) perror_and_exit("listen");
+	global_resources->server_sockfd = server_sockfd;
+}
 
-	/* setup and run event loop */
+#define MAXPENDING 5
+
+void listen_server_socket(global_resources_struct *global_resources) {
+	if (listen(global_resources->server_sockfd, MAXPENDING)) perror_and_exit("listen");
+}
+
+void setup_events(global_resources_struct *global_resources) {
 	struct event_base *base = event_base_new();
 	if (base == NULL) everror_and_exit("event_base_new");
+	global_resources->bases.base = base;
 	
 	struct evdns_base *dns_base = evdns_base_new(base, EVDNS_BASE_INITIALIZE_NAMESERVERS);
 	if (dns_base == NULL) everror_and_exit("evdns_base_new");
+	global_resources->bases.dns_base = dns_base;
 	if (evdns_base_set_option(dns_base, "randomize-case", "0")) everror_and_exit("evdns_base_set_option");
 	
-	signal_cb_arg_struct signal_cb_arg = {.base = base};
-	struct event *int_signal_event = evsignal_new(base, SIGINT, signal_cb, &signal_cb_arg);
+	struct event *int_signal_event = evsignal_new(base, SIGINT, signal_cb, global_resources->bases.base);
 	if (int_signal_event == NULL) everror_and_exit("evsignal_new");
+	global_resources->int_signal_event = int_signal_event;
 	if (event_add(int_signal_event, NULL)) everror_and_exit("event_add");
 	
-	server_accept_cb_arg_struct server_accept_cb_arg = {.base = base, .dns_base = dns_base};
-	struct event *server_event = event_new(base, server_sockfd, EV_READ|EV_PERSIST,
-			server_accept_cb, &server_accept_cb_arg);
+	struct event *server_event = event_new(base, global_resources->server_sockfd, EV_READ|EV_PERSIST,
+			server_accept_cb, &global_resources->bases);
 	if (server_event == NULL) everror_and_exit("event_new");
+	global_resources->server_event = server_event;
 	if (event_add(server_event, NULL)) everror_and_exit("event_add");
+}
+
+void close_all(global_resources_struct *global_resources) {
+	if (event_del(global_resources->int_signal_event)) everror("event_del");
+	event_free(global_resources->int_signal_event);
 	
-	if (event_base_dispatch(base)) everror_and_exit("event_base_dispatch");
+	if (event_del(global_resources->server_event)) everror("event_del");
+	event_free(global_resources->server_event);
 	
-	/* close all */
-	if (event_del(int_signal_event)) everror_and_exit("event_del");
-	event_free(int_signal_event);
+	client_handler_destruct_all(global_resources->bases.base);
+	transfer_destruct_all(global_resources->bases.base);
 	
-	if (event_del(server_event)) everror_and_exit("event_del");
-	event_free(server_event);
+	evdns_base_free(global_resources->bases.dns_base, 0);
 	
-	//free_all_client_read_events(base);
+	event_base_free(global_resources->bases.base);
 	
-	event_base_free(base);
-	
-	if (close(server_sockfd)) perror_and_exit("close");
+	if (close(global_resources->server_sockfd)) perror("close");
+}
+
+void run() {
+	global_resources_struct global_resources;
+	setup_server_socket(&global_resources);
+	setup_events(&global_resources);
+	listen_server_socket(&global_resources);
+	if (event_base_dispatch(global_resources.bases.base)) everror_and_exit("event_base_dispatch");
+	close_all(&global_resources);
 }
 
 int main(int argc, char* argv[]) {
