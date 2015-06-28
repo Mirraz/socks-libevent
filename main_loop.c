@@ -152,6 +152,7 @@ void run() {
 	
 	struct evdns_base *dns_base = evdns_base_new(base, EVDNS_BASE_INITIALIZE_NAMESERVERS);
 	if (dns_base == NULL) everror_and_exit("evdns_base_new");
+	if (evdns_base_set_option(dns_base, "randomize-case", "0")) everror_and_exit("evdns_base_set_option");
 	
 	signal_cb_arg_struct signal_cb_arg = {.base = base};
 	struct event *int_signal_event = evsignal_new(base, SIGINT, signal_cb, &signal_cb_arg);
