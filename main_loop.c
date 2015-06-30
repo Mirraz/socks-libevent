@@ -33,6 +33,16 @@ void everror_and_exit(const char *s) {
 }
 
 typedef struct {
+	struct sockaddr addr;
+	socklen_t addr_len;
+} server_bind_addr_struct;
+
+typedef struct {
+	server_bind_addr_struct server_bind_addr;
+	size_t transfer_buffer_size;
+} global_config_struct;
+
+typedef struct {
 	struct event_base *base;
 	struct evdns_base *dns_base;
 } bases_struct;
@@ -127,21 +137,18 @@ void free_all_client_read_events(struct event_base *base) {
 }
 */
 
-void setup_server_socket(global_resources_struct *global_resources) {
-	unsigned int port = 9091;
+void setup_server_socket(global_config_struct *global_config, global_resources_struct *global_resources) {
+	server_bind_addr_struct *server_bind_addr = &global_config->server_bind_addr;
+	struct sockaddr *addr = &server_bind_addr->addr;
+	socklen_t addr_len = server_bind_addr->addr_len;
 
-	int server_sockfd = socket(AF_INET, SOCK_STREAM, 0);
+	int server_sockfd = socket(addr->sa_family, SOCK_STREAM, 0);
 	if (server_sockfd < 0) perror_and_exit("socket");
 	
 	int yes = 1;
 	if (setsockopt(server_sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes))) perror_and_exit("setsockopt");
 	
-	const struct sockaddr_in server_sin = {
-		.sin_family = AF_INET,
-		.sin_port = htons(port),
-		.sin_addr = {.s_addr = htonl(INADDR_LOOPBACK)}
-	};
-	if (bind(server_sockfd, (const struct sockaddr*) &server_sin, sizeof(server_sin))) perror_and_exit("bind");
+	if (bind(server_sockfd, addr, addr_len)) perror_and_exit("bind");
 	
 	global_resources->server_sockfd = server_sockfd;
 }
@@ -174,6 +181,10 @@ void setup_events(global_resources_struct *global_resources) {
 	if (event_add(server_event, NULL)) everror_and_exit("event_add");
 }
 
+void dispatch(global_resources_struct *global_resources) {
+	if (event_base_dispatch(global_resources->bases.base)) everror_and_exit("event_base_dispatch");
+}
+
 void close_all(global_resources_struct *global_resources) {
 	if (event_del(global_resources->int_signal_event)) everror("event_del");
 	event_free(global_resources->int_signal_event);
@@ -191,19 +202,38 @@ void close_all(global_resources_struct *global_resources) {
 	if (close(global_resources->server_sockfd)) perror("close");
 }
 
-void run() {
+void run(global_config_struct *global_config) {
 	global_resources_struct global_resources;
-	setup_server_socket(&global_resources);
+	
+	setup_server_socket(global_config, &global_resources);
 	setup_events(&global_resources);
 	listen_server_socket(&global_resources);
-	if (event_base_dispatch(global_resources.bases.base)) everror_and_exit("event_base_dispatch");
+	dispatch(&global_resources);
 	close_all(&global_resources);
 }
 
+void process_args(global_config_struct *global_config, int argc, char* argv[]) {
+	server_bind_addr_struct *server_bind_addr = &global_config->server_bind_addr;
+	struct sockaddr *addr = &server_bind_addr->addr;
+	
+	addr->sa_family = AF_INET;
+	struct sockaddr_in *sin = (struct sockaddr_in *)addr;
+	sin->sin_port = htons(9091);
+	sin->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	
+	server_bind_addr->addr_len = sizeof(struct sockaddr_in);
+	
+	global_config->transfer_buffer_size = 64*1024;
+}
+
 int main(int argc, char* argv[]) {
-	(void)argc;
-	(void)argv;
-	run();
-	printf("DONE\n");
+	global_config_struct global_config;
+	
+	process_args(&global_config, argc, argv);
+	run(&global_config);
+#ifndef NDEBUG
+	printf_err("DONE");
+#endif
 	return 0;
 }
+
