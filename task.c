@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <assert.h>
 #include <errno.h>
+#include <string.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -114,11 +115,12 @@ static int handle_connect_err(connect_task_struct *connect_task, int err) {
 		case ECONNREFUSED:
 		case ETIMEDOUT:
 		case ENETUNREACH:
-			connect_task->ret = errno;
+			connect_task->ret = err;
 			return -1;
 		default:
-			perror("connect");
-			connect_task->ret = errno;
+			// not 'perror' because 'errno' may be not equal to 'err'
+			printf_err("connect: %s", strerror(err));
+			connect_task->ret = err;
 			return -1;
 	}
 }
