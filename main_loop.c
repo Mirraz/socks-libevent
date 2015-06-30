@@ -3,11 +3,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <getopt.h>
+#include <memory.h>
+#include <limits.h>
 #include <assert.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <signal.h>
 
 #include "transfer.h"
@@ -212,24 +216,154 @@ void run(global_config_struct *global_config) {
 	close_all(&global_resources);
 }
 
-void process_args(global_config_struct *global_config, int argc, char* argv[]) {
-	server_bind_addr_struct *server_bind_addr = &global_config->server_bind_addr;
-	struct sockaddr *addr = &server_bind_addr->addr;
+void print_help() {
+	// TODO
+	printf("help\n");
+}
+
+typedef struct {
+	char *bind_ipv4;
+	char *bind_ipv6;
+	char *bind_port;
+	char *transfer_buffer_size;
+} cmdline_args_struct;
+
+void parse_args(int argc, char* argv[], cmdline_args_struct *args) {
+	args->bind_ipv4 = NULL;
+	args->bind_ipv6 = NULL;
+	args->bind_port = NULL;
+	args->transfer_buffer_size = NULL;
 	
-	addr->sa_family = AF_INET;
-	struct sockaddr_in *sin = (struct sockaddr_in *)addr;
-	sin->sin_port = htons(9091);
-	sin->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	static const char optstring[] = "hp:s:";
+	static const struct option longopts[] = {
+		{"help",      no_argument,       0, 'h'},
+		{"bind-ip",   required_argument, 0, '4'},
+		{"bind-ipv6", required_argument, 0, '6'},
+		{"port",      required_argument, 0, 'p'},
+		{"size",      required_argument, 0, 's'},
+		{0, 0, 0, 0}
+	};
+	int longindex = 0;
+	int c;
+	while (1) {
+		c = getopt_long (argc, argv, optstring, longopts, &longindex);
+		if (c == -1) break;
+		switch (c) {
+			case 'h':
+				print_help();
+				exit(EXIT_SUCCESS);
+				break;
+			case '4':
+				args->bind_ipv4 = optarg;
+				break;
+			case '6':
+				args->bind_ipv6 = optarg;
+				break;
+			case 'p':
+				args->bind_port = optarg;
+				break;
+			case 's':
+				args->transfer_buffer_size = optarg;
+				break;
+			default:
+				goto print_help_and_exit_err;
+		}
+	}
+
+	if (optind < argc) goto print_help_and_exit_err;
 	
-	server_bind_addr->addr_len = sizeof(struct sockaddr_in);
+	if (args->bind_ipv4 != NULL && args->bind_ipv6 != NULL) goto print_help_and_exit_err;
+	if (args->bind_port == NULL) goto print_help_and_exit_err;
 	
-	global_config->transfer_buffer_size = 64*1024;
+	return;
+
+print_help_and_exit_err:
+	print_help();
+	exit(EXIT_FAILURE);
+}
+
+#define default_transfer_buffer_size (64*1024)
+#define default_bind_port 1080
+#define default_bind_addr INADDR_LOOPBACK
+
+#if default_transfer_buffer_size > SSIZE_MAX
+#	error
+#endif
+
+#define LARGE_PORT_NUMBER 65536
+#if default_bind_port <=0 || default_bind_port >= LARGE_PORT_NUMBER
+#	error
+#endif
+
+void process_args(int argc, char* argv[], global_config_struct *global_config) {
+	cmdline_args_struct args_;
+	cmdline_args_struct *args = &args_;
+	parse_args(argc, argv, args);
+	
+	in_port_t port;
+	{
+		if (args->bind_port != NULL) {
+			int p = atoi(args->bind_port);
+			if (p <= 0 || p >= LARGE_PORT_NUMBER)
+				printf_and_exit("invalid port");
+			else
+				port = (in_port_t)p;
+		} else {
+			port = default_bind_port;
+		}
+	}
+	
+	{
+		server_bind_addr_struct *server_bind_addr = &global_config->server_bind_addr;
+		
+		assert(args->bind_ipv4 == NULL || args->bind_ipv6 == NULL);
+		if (args->bind_ipv6 != NULL) {
+			assert(sizeof(server_bind_addr->addr) >= sizeof(struct sockaddr_in6));
+			struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)&server_bind_addr->addr;
+			memset(sin6, 0, sizeof(struct sockaddr_in6));
+			sin6->sin6_family = AF_INET6;
+			sin6->sin6_port = htons(port);
+			int ret = inet_pton(AF_INET6, args->bind_ipv6, &sin6->sin6_addr);
+			if (ret < 0) perror_and_exit("inet_pton");
+			else if (ret != 1) printf_and_exit("invalid ipv6 address");
+			
+			server_bind_addr->addr_len = sizeof(struct sockaddr_in6);
+		} else {
+			assert(sizeof(server_bind_addr->addr) >= sizeof(struct sockaddr_in));
+			struct sockaddr_in *sin = (struct sockaddr_in *)&server_bind_addr->addr;
+			sin->sin_family = AF_INET;
+			sin->sin_port = htons(port);
+			if (args->bind_ipv4 == NULL) {
+				sin->sin_addr.s_addr = htonl(default_bind_addr);
+			} else {
+				if (!inet_aton(args->bind_ipv4, &sin->sin_addr)) printf_and_exit("invalid ip address");
+			}
+			
+			server_bind_addr->addr_len = sizeof(struct sockaddr_in);
+		}
+	}
+	
+	size_t transfer_buffer_size;
+	{
+		if (args->transfer_buffer_size != NULL) {
+			long long int size = atoll(args->transfer_buffer_size);
+			if (size <= 0)
+				printf_and_exit("invalid transfer buffer size");
+			else if (size == LONG_MAX || size > SSIZE_MAX)
+				printf_and_exit("too large transfer buffer size");
+			else
+				transfer_buffer_size = (size_t)size;
+		} else {
+			transfer_buffer_size = default_transfer_buffer_size;
+		}
+	}
+	global_config->transfer_buffer_size = transfer_buffer_size;
 }
 
 int main(int argc, char* argv[]) {
 	global_config_struct global_config;
 	
-	process_args(&global_config, argc, argv);
+	process_args(argc, argv, &global_config);
 	run(&global_config);
 #ifndef NDEBUG
 	printf_err("DONE");
