@@ -214,9 +214,33 @@ void run(global_config_struct *global_config) {
 	close_all(&global_resources);
 }
 
-void print_help() {
-	// TODO
-	printf("help\n");
+#define default_transfer_buffer_size (64*1024)
+#define default_bind_port 1080
+#define default_bind_addr INADDR_LOOPBACK
+
+#if default_transfer_buffer_size > SSIZE_MAX
+#	error
+#endif
+
+#define LARGE_PORT_NUMBER 65536
+#if default_bind_port <=0 || default_bind_port >= LARGE_PORT_NUMBER
+#	error
+#endif
+
+void print_help(const char *prog_name) {
+	printf(
+		"Usage: %s [-hps] [--bind-ip <ip>|-bind-ipv6 <ipv6>]\n"
+		"    -h, --help               display this help and exit\n"
+		"        --bind-ip <ip>       bind to IP address <ip> (default: 127.0.0.1)\n"
+		"        --bind-ipv6 <ipv6>   bind to IPv6 address <ipv6>\n"
+		"    -p, --port <port>        bind to <port> (default: %u)\n"
+		"    -s, --size <size>        assing two transfer buffers of <size> bytes\n"
+		"                             for every client (default: 64K)\n",
+#if default_transfer_buffer_size != 64*1024
+#	warning
+#endif
+		prog_name, default_bind_port
+	);
 }
 
 typedef struct {
@@ -248,7 +272,7 @@ void parse_args(int argc, char* argv[], cmdline_args_struct *args) {
 		if (c == -1) break;
 		switch (c) {
 			case 'h':
-				print_help();
+				print_help(argv[0]);
 				exit(EXIT_SUCCESS);
 				break;
 			case '4':
@@ -271,27 +295,13 @@ void parse_args(int argc, char* argv[], cmdline_args_struct *args) {
 	if (optind < argc) goto print_help_and_exit_err;
 	
 	if (args->bind_ipv4 != NULL && args->bind_ipv6 != NULL) goto print_help_and_exit_err;
-	if (args->bind_port == NULL) goto print_help_and_exit_err;
 	
 	return;
 
 print_help_and_exit_err:
-	print_help();
+	print_help(argv[0]);
 	exit(EXIT_FAILURE);
 }
-
-#define default_transfer_buffer_size (64*1024)
-#define default_bind_port 1080
-#define default_bind_addr INADDR_LOOPBACK
-
-#if default_transfer_buffer_size > SSIZE_MAX
-#	error
-#endif
-
-#define LARGE_PORT_NUMBER 65536
-#if default_bind_port <=0 || default_bind_port >= LARGE_PORT_NUMBER
-#	error
-#endif
 
 void process_args(int argc, char* argv[], global_config_struct *global_config) {
 	cmdline_args_struct args_;
