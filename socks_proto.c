@@ -389,7 +389,7 @@ static int socks5_req(socks5_arg_struct *socks5_arg) {
 			struct addrinfo *res  = ctx->req.req.conn.getaddrinfo_args.res;
 			
 			unsigned int addr_len = res->ai_addrlen;
-			struct sockaddr *addr = &ctx->req.req.conn.connect_addr.addr;
+			struct sockaddr_storage *addr = &ctx->req.req.conn.connect_addr.addr;
 			assert(sizeof(ctx->req.req.conn.connect_addr.addr) >= addr_len);
 			memmove(addr, res->ai_addr, addr_len);
 			ctx->req.req.conn.connect_addr.addr_len = addr_len;
@@ -399,15 +399,15 @@ static int socks5_req(socks5_arg_struct *socks5_arg) {
 		}
 		case STATE_REQ_SOCKADDR_LABEL: {
 			socks5_context_union *ctx = get_ctx(socks5_arg);
-			struct sockaddr *addr = &ctx->req.req.conn.connect_addr.addr;
+			struct sockaddr_storage *addr = &ctx->req.req.conn.connect_addr.addr;
 			unsigned int addr_len =  ctx->req.req.conn.connect_addr.addr_len;
 			
-			int connect_sockfd = socket(addr->sa_family, SOCK_STREAM, 0);
+			int connect_sockfd = socket(addr->ss_family, SOCK_STREAM, 0);
 			if (connect_sockfd < 0) {perror("socket"); return SOCKS5_RES_ERROR;}
 			if (make_socket_nonblocking(connect_sockfd)) {perror("fcntl"); return SOCKS5_RES_ERROR;}
 			set_connect_sockfd(socks5_arg, connect_sockfd);
 			
-			connect_shedule(socks5_arg, connect_sockfd, addr, addr_len);
+			connect_shedule(socks5_arg, connect_sockfd, (struct sockaddr *)addr, addr_len);
 			set_next_state(socks5_arg, STATE_REQ_CONNECT);
 			return SOCKS5_RES_TASK;
 		}

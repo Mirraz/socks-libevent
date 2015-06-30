@@ -37,7 +37,7 @@ void everror_and_exit(const char *s) {
 }
 
 typedef struct {
-	struct sockaddr addr;
+	struct sockaddr_storage addr;
 	socklen_t addr_len;
 } server_bind_addr_struct;
 
@@ -75,9 +75,7 @@ void server_accept_cb(evutil_socket_t server_sockfd, short ev_flag, void *arg) {
 	assert(ev_flag == EV_READ);
 	(void)ev_flag;
 	
-	struct sockaddr_in client_sin;
-	socklen_t client_sin_len = sizeof(client_sin);
-	int client_sockfd = accept(server_sockfd, (struct sockaddr *)&client_sin, &client_sin_len);
+	int client_sockfd = accept(server_sockfd, NULL, NULL);
 	if (client_sockfd < 0) {perror("accept"); return;}
 	
 	if (make_socket_nonblocking(client_sockfd)) {
@@ -143,16 +141,16 @@ void free_all_client_read_events(struct event_base *base) {
 
 void setup_server_socket(global_config_struct *global_config, global_resources_struct *global_resources) {
 	server_bind_addr_struct *server_bind_addr = &global_config->server_bind_addr;
-	struct sockaddr *addr = &server_bind_addr->addr;
+	struct sockaddr_storage *addr = &server_bind_addr->addr;
 	socklen_t addr_len = server_bind_addr->addr_len;
 
-	int server_sockfd = socket(addr->sa_family, SOCK_STREAM, 0);
+	int server_sockfd = socket(addr->ss_family, SOCK_STREAM, 0);
 	if (server_sockfd < 0) perror_and_exit("socket");
 	
 	int yes = 1;
 	if (setsockopt(server_sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes))) perror_and_exit("setsockopt");
 	
-	if (bind(server_sockfd, addr, addr_len)) perror_and_exit("bind");
+	if (bind(server_sockfd, (struct sockaddr *)addr, addr_len)) perror_and_exit("bind");
 	
 	global_resources->server_sockfd = server_sockfd;
 }

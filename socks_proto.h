@@ -43,7 +43,7 @@ typedef union {
 				struct addrinfo *res;
 			} getaddrinfo_args;
 			struct {
-				struct sockaddr addr;
+				struct sockaddr_storage addr;
 				socklen_t addr_len;
 			} connect_addr;
 		} conn;
