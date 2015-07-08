@@ -27,20 +27,20 @@ struct transfer_struct_ {
 	bool event_write_active;
 };
 
+static void destruct_half(transfer_struct *transfer) {
+	if (transfer->event_read_active)
+		if (event_del(transfer->event_read)) everror("event_del");
+	if (transfer->event_write_active)
+		if (event_del(transfer->event_write)) everror("event_del");
+	event_free(transfer->event_read);
+	event_free(transfer->event_write);
+	if (close(transfer->fd)) perror("close");
+	free(transfer);
+}
+
 static void destruct(transfer_struct *transfer) {
-	transfer_struct *transfers[2] = {transfer, transfer->reverse_transfer};
-	unsigned int i;
-	for (i=0; i<2; ++i) {
-		transfer_struct *transfer = transfers[i];
-		if (transfer->event_read_active)
-			if (event_del(transfer->event_read)) everror("event_del");
-		if (transfer->event_write_active)
-			if (event_del(transfer->event_write)) everror("event_del");
-		event_free(transfer->event_read);
-		event_free(transfer->event_write);
-		if (close(transfer->fd)) perror("close");
-		free(transfer);
-	}
+	destruct_half(transfer->reverse_transfer);
+	destruct_half(transfer);
 }
 
 /*
@@ -280,8 +280,25 @@ close_all:
 	if (close(fd1)) perror("close");
 }
 
-void transfer_destruct_all(struct event_base *base) {
-	// TODO
-	(void)base;
+bool transfer_events_filter(const struct event *event) {
+	event_callback_fn cb = event_get_callback(event);
+	return (cb == read_cb || cb == write_cb);
+}
+
+void transfer_destruct(struct event *event) {
+	event_callback_fn cb = event_get_callback(event);
+	transfer_struct *transfer = (transfer_struct *)event_get_callback_arg(event);
+	assert(transfer != NULL);
+	assert((cb == read_cb && transfer->event_read_active) || (cb == write_cb && transfer->event_write_active));
+	if (cb == read_cb && transfer->event_write_active) {
+		transfer->event_read_active = false;
+		return;
+	}
+	if (cb == write_cb && transfer->event_read_active) {
+		transfer->event_write_active = false;
+		return;
+	}
+	if (close(transfer->fd)) perror("close");
+	free(transfer);
 }
 

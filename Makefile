@@ -19,11 +19,11 @@ all: $(BUILD_DIR) $(EXECUTABLE)
 $(BUILD_DIR):
 	mkdir $(BUILD_DIR)
 
-$(EXECUTABLE): $(BUILD_DIR)/main_loop.o $(BUILD_DIR)/transfer.o $(BUILD_DIR)/handle_client.o $(BUILD_DIR)/socks_proto.o $(BUILD_DIR)/task.o $(BUILD_DIR)/common.o
+$(EXECUTABLE): $(BUILD_DIR)/main_loop.o $(BUILD_DIR)/transfer.o $(BUILD_DIR)/handle_client.o $(BUILD_DIR)/socks_proto.o $(BUILD_DIR)/task.o $(BUILD_DIR)/common.o $(BUILD_DIR)/stack.o
 	$(LD) -o $@ $^ $(LDFLAGS)
 	$(STRIP) $@
 
-$(BUILD_DIR)/main_loop.o: $(SRC_DIR)/main_loop.c $(SRC_DIR)/transfer.h $(SRC_DIR)/handle_client.h $(SRC_DIR)/common.h Makefile
+$(BUILD_DIR)/main_loop.o: $(SRC_DIR)/main_loop.c $(SRC_DIR)/transfer.h $(SRC_DIR)/handle_client.h $(SRC_DIR)/common.h $(SRC_DIR)/stack.h Makefile
 	$(CC) -o $@ $< -c $(CFLAGS)
 
 $(BUILD_DIR)/transfer.o: $(SRC_DIR)/transfer.c $(SRC_DIR)/transfer.h $(SRC_DIR)/common.h Makefile
@@ -39,6 +39,9 @@ $(BUILD_DIR)/task.o: $(SRC_DIR)/task.c $(SRC_DIR)/task.h $(SRC_DIR)/common.h Mak
 	$(CC) -o $@ $< -c $(CFLAGS)
 
 $(BUILD_DIR)/common.o: $(SRC_DIR)/common.c $(SRC_DIR)/common.h Makefile
+	$(CC) -o $@ $< -c $(CFLAGS)
+
+$(BUILD_DIR)/stack.o: $(SRC_DIR)/stack.c $(SRC_DIR)/stack.h Makefile
 	$(CC) -o $@ $< -c $(CFLAGS)
 
 clean:

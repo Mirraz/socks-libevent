@@ -17,6 +17,7 @@
 #include "transfer.h"
 #include "handle_client.h"
 #include "common.h"
+#include "stack.h"
 
 void printf_and_exit(const char *format, ...) {
 	va_list arglist;
@@ -43,7 +44,7 @@ typedef struct {
 
 typedef struct {
 	server_bind_addr_struct server_bind_addr;
-	size_t transfer_buffer_size;
+	size_t transfer_buffer_size; // TODO
 } global_config_struct;
 
 typedef struct {
@@ -86,58 +87,6 @@ void server_accept_cb(evutil_socket_t server_sockfd, short ev_flag, void *arg) {
 	
 	client_handler_construct_and_run(bases->base, bases->dns_base, client_sockfd);
 }
-
-// TODO
-/*
-struct event_list_node_struct_;
-typedef struct event_list_node_struct_ event_list_node_struct;
-struct event_list_node_struct_{
-	struct event *event;
-	event_list_node_struct *next;
-};
-
-int enum_client_read_events_cb(const struct event_base *base, const struct event *event, void *arg) {
-	(void)base;
-	event_callback_fn cb = event_get_callback(event);
-	if (cb != &client_read_cb) return 0;
-
-	event_list_node_struct **event_list_tail_p = (event_list_node_struct **)arg;
-	event_list_node_struct *event_list_node_next = malloc(sizeof(event_list_node_struct));
-	if (event_list_node_next == NULL) perror_and_exit("malloc");
-	event_list_node_next->event = (struct event *)event;
-	event_list_node_next->next = NULL;
-	(*event_list_tail_p)->next = event_list_node_next;
-	*event_list_tail_p = event_list_node_next;
-	return 0;
-}
-
-void free_all_client_read_events(struct event_base *base) {
-	event_list_node_struct *event_list_head = malloc(sizeof(event_list_node_struct));
-	if (event_list_head == NULL) perror_and_exit("malloc");
-	event_list_head->event = NULL;
-	event_list_head->next = NULL;
-	event_list_node_struct *event_list_tail = event_list_head;
-	while(event_base_foreach_event(base, enum_client_read_events_cb, &event_list_tail) > 0);
-	(void)event_list_tail;
-	event_list_node_struct *event_list_node = event_list_head;
-	event_list_head = event_list_head->next;
-	free(event_list_node);
-	
-	while(event_list_head != NULL) {
-		event_list_node = event_list_head;
-		event_list_head = event_list_head->next;
-		
-		struct event *event = event_list_node->event;
-		void *arg = event_get_callback_arg(event);
-		assert(arg != NULL);
-		evutil_socket_t client_sockfd = event_get_fd(event);
-		assert(client_sockfd >= 0);
-		del_and_free_client_read_event(event, arg, client_sockfd);
-		
-		free(event_list_node);
-	}
-}
-*/
 
 void setup_server_socket(global_config_struct *global_config, global_resources_struct *global_resources) {
 	server_bind_addr_struct *server_bind_addr = &global_config->server_bind_addr;
@@ -187,6 +136,35 @@ void dispatch(global_resources_struct *global_resources) {
 	if (event_base_dispatch(global_resources->bases.base)) everror_and_exit("event_base_dispatch");
 }
 
+typedef bool (*events_filter_type)(const struct event *event);
+typedef void (*event_cb_arg_destruct_type)(struct event *event);
+
+typedef struct {
+	stack_struct events_stack;
+	events_filter_type events_filter;
+} enum_clients_events_cb_arg_struct;
+
+int enum_clients_events_cb(const struct event_base *base, const struct event *event, void *arg) {
+	(void)base;
+	enum_clients_events_cb_arg_struct *cb_arg = (enum_clients_events_cb_arg_struct *)arg;
+	if (cb_arg->events_filter(event)) stack_push(&cb_arg->events_stack, event);
+	return 0;
+}
+
+void free_all_clients_events(struct event_base *base, events_filter_type filter, event_cb_arg_destruct_type destruct) {
+	enum_clients_events_cb_arg_struct arg;
+	stack_new(&arg.events_stack);
+	arg.events_filter = filter;
+	while (event_base_foreach_event(base, enum_clients_events_cb, &arg) > 0);
+	while (!stack_is_empty(&arg.events_stack)) {
+		struct event *event = stack_pop(&arg.events_stack);
+		assert(event != NULL);
+		if (event_del(event)) everror("event_del");
+		destruct(event);
+		event_free(event);
+	}
+}
+
 void close_all(global_resources_struct *global_resources) {
 	if (event_del(global_resources->int_signal_event)) everror("event_del");
 	event_free(global_resources->int_signal_event);
@@ -194,11 +172,11 @@ void close_all(global_resources_struct *global_resources) {
 	if (event_del(global_resources->server_event)) everror("event_del");
 	event_free(global_resources->server_event);
 	
-	client_handler_destruct_all(global_resources->bases.base);
-	transfer_destruct_all(global_resources->bases.base);
+	free_all_clients_events(global_resources->bases.base, client_handler_events_filter, client_handler_destruct);
+	//free_all_clients_events(global_resources->bases.dns_base, client_handler_events_filter, client_handler_destruct); // TODO
+	free_all_clients_events(global_resources->bases.base, transfer_events_filter, transfer_destruct);
 	
 	evdns_base_free(global_resources->bases.dns_base, 0);
-	
 	event_base_free(global_resources->bases.base);
 	
 	if (close(global_resources->server_sockfd)) perror("close");

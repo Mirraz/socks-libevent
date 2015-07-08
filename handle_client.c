@@ -211,8 +211,14 @@ void client_handler_construct_and_run(struct event_base *base, struct evdns_base
 	sock5_proto_wrapper(client_data);
 }
 
-void client_handler_destruct_all(struct event_base *base) {
-	// TODO
-	(void)base;
+bool client_handler_events_filter(const struct event *event) {
+	event_callback_fn cb = event_get_callback(event);
+	return (cb == client_read_cb || cb == client_write_cb || cb == connect_write_cb); // TODO: getaddrinfo_cb
+}
+
+void client_handler_destruct(struct event *event) {
+	client_data_struct *client_data = (client_data_struct *)event_get_callback_arg(event);
+	assert(client_data != NULL);
+	destruct(client_data);
 }
 
