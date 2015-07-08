@@ -68,6 +68,8 @@ void signal_cb(evutil_socket_t signum, short ev_flag, void *arg) {
 			if (event_base_loopbreak(base)) {everror("event_base_loopbreak"); return;}
 			break;
 		}
+		default:
+			assert(0);
 	}
 }
 
