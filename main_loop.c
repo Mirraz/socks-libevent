@@ -18,6 +18,7 @@
 #include "handle_client.h"
 #include "common.h"
 #include "stack.h"
+#include "set.h"
 
 void printf_and_exit(const char *format, ...) {
 	va_list arglist;
@@ -50,6 +51,7 @@ typedef struct {
 typedef struct {
 	struct event_base *base;
 	struct evdns_base *dns_base;
+	set_struct dns_requests;
 } bases_struct;
 
 typedef struct {
@@ -87,7 +89,7 @@ void server_accept_cb(evutil_socket_t server_sockfd, short ev_flag, void *arg) {
 		return;
 	}
 	
-	client_handler_construct_and_run(bases->base, bases->dns_base, client_sockfd);
+	client_handler_construct_and_run(bases->base, bases->dns_base, &bases->dns_requests, client_sockfd);
 }
 
 void setup_server_socket(global_config_struct *global_config, global_resources_struct *global_resources) {
@@ -112,6 +114,10 @@ void listen_server_socket(global_resources_struct *global_resources) {
 	if (listen(global_resources->server_sockfd, MAXPENDING)) perror_and_exit("listen");
 }
 
+bool dns_requests_equals(const void *element1, const void *element2) {
+	return (element1 == element2);
+}
+
 void setup_events(global_resources_struct *global_resources) {
 	struct event_base *base = event_base_new();
 	if (base == NULL) everror_and_exit("event_base_new");
@@ -121,6 +127,8 @@ void setup_events(global_resources_struct *global_resources) {
 	if (dns_base == NULL) everror_and_exit("evdns_base_new");
 	global_resources->bases.dns_base = dns_base;
 	if (evdns_base_set_option(dns_base, "randomize-case", "0")) everror_and_exit("evdns_base_set_option");
+	
+	set_new(&global_resources->bases.dns_requests, dns_requests_equals);
 	
 	struct event *int_signal_event = evsignal_new(base, SIGINT, signal_cb, global_resources->bases.base);
 	if (int_signal_event == NULL) everror_and_exit("evsignal_new");
@@ -175,7 +183,12 @@ void close_all(global_resources_struct *global_resources) {
 	event_free(global_resources->server_event);
 	
 	free_all_clients_events(global_resources->bases.base, client_handler_events_filter, client_handler_destruct);
-	//free_all_clients_events(global_resources->bases.dns_base, client_handler_events_filter, client_handler_destruct); // TODO
+	
+	set_struct *dns_requests = &global_resources->bases.dns_requests;
+	while (!set_is_empty(dns_requests)) {
+		client_handler_destruct_dns_req((client_handler_dns_req_struct *)set_extract_any_element(dns_requests));
+	}
+	
 	free_all_clients_events(global_resources->bases.base, transfer_events_filter, transfer_destruct);
 	
 	evdns_base_free(global_resources->bases.dns_base, 0);
@@ -350,7 +363,6 @@ void process_args(int argc, char* argv[], global_config_struct *global_config) {
 
 int main(int argc, char* argv[]) {
 	global_config_struct global_config;
-	
 	process_args(argc, argv, &global_config);
 	run(&global_config);
 #ifndef NDEBUG

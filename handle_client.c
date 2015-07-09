@@ -11,10 +11,12 @@
 #include "socks_proto.h"
 #include "task.h"
 #include "common.h"
+#include "set.h"
 
 typedef struct {
 	struct event_base *base;
 	struct evdns_base *dns_base;
+	set_struct *dns_requests;
 	union {
 		struct event *read;
 		struct event *write;
@@ -104,8 +106,10 @@ static void getaddrinfo_cb(int result, struct evutil_addrinfo *res, void *arg) {
 	getaddrinfo_task_struct *tsk = &task->data.getaddrinfo_task;
 	tsk->ret = result;
 	*(tsk->res) = res;
-	if (!client_data->events.getaddrinfo.setting_up)
+	if (!client_data->events.getaddrinfo.setting_up) {
+		assert(set_remove(client_data->dns_requests, client_data));
 		sock5_proto_wrapper(client_data);
+	}
 }
 
 /* return:
@@ -142,6 +146,8 @@ static int shedule_task(client_data_struct *client_data) {
 			client_data->events.getaddrinfo.setting_up = false;
 			if (event == NULL) return 0;
 			client_data->events.getaddrinfo.ev = event;
+			assert(!set_contains(client_data->dns_requests, client_data));
+			set_add_new(client_data->dns_requests, client_data);
 			return 1;
 		}
 		case TASK_CONNECT: {
@@ -194,7 +200,8 @@ static void sock5_proto_wrapper(client_data_struct *client_data) {
 	}
 }
 
-void client_handler_construct_and_run(struct event_base *base, struct evdns_base *dns_base, int client_sockfd) {
+void client_handler_construct_and_run(struct event_base *base, struct evdns_base *dns_base,
+		set_struct *dns_requests, int client_sockfd) {
 	client_data_struct *client_data = malloc(sizeof(client_data_struct));
 	if (client_data == NULL) {
 		perror("malloc");
@@ -203,6 +210,7 @@ void client_handler_construct_and_run(struct event_base *base, struct evdns_base
 	}
 	client_data->base = base;
 	client_data->dns_base = dns_base;
+	client_data->dns_requests = dns_requests;
 	
 	socks5_init(&client_data->socks5_arg, client_sockfd);
 	int shedule_res = shedule_task(client_data);
@@ -213,12 +221,17 @@ void client_handler_construct_and_run(struct event_base *base, struct evdns_base
 
 bool client_handler_events_filter(const struct event *event) {
 	event_callback_fn cb = event_get_callback(event);
-	return (cb == client_read_cb || cb == client_write_cb || cb == connect_write_cb); // TODO: getaddrinfo_cb
+	return (cb == client_read_cb || cb == client_write_cb || cb == connect_write_cb);
 }
 
 void client_handler_destruct(struct event *event) {
 	client_data_struct *client_data = (client_data_struct *)event_get_callback_arg(event);
 	assert(client_data != NULL);
+	destruct(client_data);
+}
+
+void client_handler_destruct_dns_req(client_handler_dns_req_struct *dns_req) {
+	client_data_struct *client_data = (client_data_struct *)dns_req;
 	destruct(client_data);
 }
 
