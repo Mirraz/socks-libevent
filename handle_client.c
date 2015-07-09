@@ -1,5 +1,6 @@
 #include <event2/event.h>
 #include <event2/dns.h>
+#include <event2/util.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -100,6 +101,7 @@ static void connect_write_cb(evutil_socket_t sockfd, short ev_flag, void *arg) {
 }
 
 static void getaddrinfo_cb(int result, struct evutil_addrinfo *res, void *arg) {
+	if (result == DNS_ERR_CANCEL) {evutil_freeaddrinfo(res); return;}
 	client_data_struct *client_data = (client_data_struct *)arg;
 	task_struct *task = get_task(&client_data->socks5_arg);
 	assert(task->type == TASK_GETADDRINFO);
@@ -147,7 +149,10 @@ static int shedule_task(client_data_struct *client_data) {
 			if (event == NULL) return 0;
 			client_data->events.getaddrinfo.ev = event;
 			assert(!set_contains(client_data->dns_requests, client_data));
-			set_add_new(client_data->dns_requests, client_data);
+			if (set_add_new(client_data->dns_requests, client_data)) {
+				evdns_getaddrinfo_cancel(event);
+				return -1;
+			}
 			return 1;
 		}
 		case TASK_CONNECT: {
