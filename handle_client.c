@@ -15,9 +15,7 @@
 #include "set.h"
 
 typedef struct {
-	struct event_base *base;
-	struct evdns_base *dns_base;
-	set_struct *dns_requests;
+	client_handler_common_struct *common;
 	union {
 		struct event *read;
 		struct event *write;
@@ -109,7 +107,7 @@ static void getaddrinfo_cb(int result, struct evutil_addrinfo *res, void *arg) {
 	tsk->ret = result;
 	*(tsk->res) = res;
 	if (!client_data->events.getaddrinfo.setting_up) {
-		assert(set_remove(client_data->dns_requests, client_data));
+		assert(set_remove(&client_data->common->dns_requests, client_data));
 		sock5_proto_wrapper(client_data);
 	}
 }
@@ -125,7 +123,7 @@ static int shedule_task(client_data_struct *client_data) {
 		case TASK_READ: {
 			read_task_struct *tsk = &task->data.read_task;
 			if (continue_read_task(tsk) <= 0) return 0;
-			struct event *event = event_new(client_data->base, tsk->fd, EV_READ|EV_PERSIST, client_read_cb, client_data);
+			struct event *event = event_new(client_data->common->base, tsk->fd, EV_READ|EV_PERSIST, client_read_cb, client_data);
 			if (event == NULL) {everror("event_new"); return -1;}
 			client_data->events.read = event;
 			if (event_add(event, NULL)) {everror("event_add"); event_free(event); return -1;}
@@ -134,7 +132,7 @@ static int shedule_task(client_data_struct *client_data) {
 		case TASK_WRITE: {
 			write_task_struct *tsk = &task->data.write_task;
 			if (continue_write_task(tsk) <= 0) return 0;
-			struct event *event = event_new(client_data->base, tsk->fd, EV_WRITE|EV_PERSIST, client_write_cb, client_data);
+			struct event *event = event_new(client_data->common->base, tsk->fd, EV_WRITE|EV_PERSIST, client_write_cb, client_data);
 			if (event == NULL) {everror("event_new"); return -1;}
 			client_data->events.write = event;
 			if (event_add(event, NULL)) {everror("event_add"); event_free(event); return -1;}
@@ -143,13 +141,13 @@ static int shedule_task(client_data_struct *client_data) {
 		case TASK_GETADDRINFO: {
 			getaddrinfo_task_struct *tsk = &task->data.getaddrinfo_task;
 			client_data->events.getaddrinfo.setting_up = true;
-			struct evdns_getaddrinfo_request *event = evdns_getaddrinfo(client_data->dns_base,
+			struct evdns_getaddrinfo_request *event = evdns_getaddrinfo(client_data->common->dns_base,
 				tsk->node, tsk->service, tsk->hints, getaddrinfo_cb, client_data);
 			client_data->events.getaddrinfo.setting_up = false;
 			if (event == NULL) return 0;
 			client_data->events.getaddrinfo.ev = event;
-			assert(!set_contains(client_data->dns_requests, client_data));
-			if (set_add_new(client_data->dns_requests, client_data)) {
+			assert(!set_contains(&client_data->common->dns_requests, client_data));
+			if (set_add_new(&client_data->common->dns_requests, client_data)) {
 				evdns_getaddrinfo_cancel(event);
 				return -1;
 			}
@@ -158,7 +156,7 @@ static int shedule_task(client_data_struct *client_data) {
 		case TASK_CONNECT: {
 			connect_task_struct *tsk = &task->data.connect_task;
 			if (first_try_connect_task(tsk) <= 0) return 0;
-			struct event *event = event_new(client_data->base, tsk->sockfd, EV_WRITE|EV_PERSIST, connect_write_cb, client_data);
+			struct event *event = event_new(client_data->common->base, tsk->sockfd, EV_WRITE|EV_PERSIST, connect_write_cb, client_data);
 			if (event == NULL) {everror("event_new"); return -1;}
 			client_data->events.connect_write = event;
 			if (event_add(event, NULL)) {everror("event_add"); event_free(event); return -1;}
@@ -191,9 +189,10 @@ static void sock5_proto_wrapper(client_data_struct *client_data) {
 				int client_sockfd = get_client_sockfd(&client_data->socks5_arg);
 				int connect_sockfd = get_connect_sockfd(&client_data->socks5_arg);
 				assert(connect_sockfd >= 0);
-				struct event_base *base = client_data->base;
+				struct event_base *base = client_data->common->base;
+				size_t transfer_buffer_size = client_data->common->transfer_buffer_size;
 				destruct_no_close(client_data);
-				transfer_construct_and_run(base, client_sockfd, connect_sockfd);
+				transfer_construct_and_run(base, transfer_buffer_size, client_sockfd, connect_sockfd);
 				return;
 			}
 			case SOCKS5_RES_AGAIN:
@@ -205,17 +204,14 @@ static void sock5_proto_wrapper(client_data_struct *client_data) {
 	}
 }
 
-void client_handler_construct_and_run(struct event_base *base, struct evdns_base *dns_base,
-		set_struct *dns_requests, int client_sockfd) {
+void client_handler_construct_and_run(client_handler_common_struct *common, int client_sockfd) {
 	client_data_struct *client_data = malloc(sizeof(client_data_struct));
 	if (client_data == NULL) {
 		perror("malloc");
 		if (close(client_sockfd)) perror("close");
 		return;
 	}
-	client_data->base = base;
-	client_data->dns_base = dns_base;
-	client_data->dns_requests = dns_requests;
+	client_data->common = common;
 	
 	socks5_init(&client_data->socks5_arg, client_sockfd);
 	int shedule_res = shedule_task(client_data);

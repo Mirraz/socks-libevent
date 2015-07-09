@@ -6,25 +6,27 @@
 #include <assert.h>
 #include <unistd.h>
 #include <errno.h>
+#ifndef NDEBUG
+#	include <limits.h>
+#endif
 
 #include "transfer.h"
 #include "common.h"
 
-#define buffer_size (64*1024)
-
 struct transfer_struct_;
 typedef struct transfer_struct_ transfer_struct;
 struct transfer_struct_ {
-	uint8_t buffer[buffer_size];
 	transfer_struct *reverse_transfer;
 	struct event *event_read;
 	struct event *event_write; // write to reverse_transfer->fd
-	int fd;
+	size_t buffer_size;
 	size_t head_begin;
 	size_t head_end;
 	size_t tail_end;
+	int fd;
 	bool event_read_active;
 	bool event_write_active;
+	uint8_t buffer[];
 };
 
 static void destruct_half(transfer_struct *transfer) {
@@ -66,12 +68,12 @@ static void destruct(transfer_struct *transfer) {
 
 static inline bool is_full(transfer_struct *transfer) {
 	return (transfer->tail_end == transfer->head_begin && transfer->head_begin != 0) ||
-			(transfer->head_begin == 0 && transfer->head_end == buffer_size);
+			(transfer->head_begin == 0 && transfer->head_end == transfer->buffer_size);
 }
 
 static inline bool is_not_full(transfer_struct *transfer) {
 	return (transfer->tail_end < transfer->head_begin) ||
-			(transfer->tail_end == transfer->head_end && (transfer->head_begin > 0 || transfer->head_end < buffer_size));
+			(transfer->tail_end == transfer->head_end && (transfer->head_begin > 0 || transfer->head_end < transfer->buffer_size));
 }
 
 static inline bool is_empty(transfer_struct *transfer) {
@@ -99,7 +101,7 @@ static int read_data(int sockfd, transfer_struct *transfer) {
 	} else {
 		assert(transfer->tail_end == transfer->head_end); // tail doesn't exist
 		size_t free_in_head_size = transfer->head_begin - 0;
-		size_t free_in_tail_size = buffer_size - transfer->head_end;
+		size_t free_in_tail_size = transfer->buffer_size - transfer->head_end;
 		assert(free_in_head_size > 0 || free_in_tail_size > 0); // buffer is not full
 		if (free_in_head_size > free_in_tail_size) {
 			// read to new tail
@@ -114,7 +116,7 @@ static int read_data(int sockfd, transfer_struct *transfer) {
 			assert((size_t)bytes <= free_in_tail_size);
 			transfer->head_end += bytes;
 			transfer->tail_end = transfer->head_end;
-			return (transfer->head_begin == 0 && transfer->head_end == buffer_size); // buffer has become full
+			return (transfer->head_begin == 0 && transfer->head_end == transfer->buffer_size); // buffer has become full
 		}
 	}
 }
@@ -215,18 +217,21 @@ static void write_cb(evutil_socket_t sockfd, short ev_flag, void *arg) {
 	}
 }
 
-void transfer_construct_and_run(struct event_base *base, int fd0, int fd1) {
-	transfer_struct *transfer0 = malloc(sizeof(transfer_struct));
+void transfer_construct_and_run(struct event_base *base, size_t buffer_size, int fd0, int fd1) {
+	assert(buffer_size > 0 && buffer_size < SSIZE_MAX);
+	transfer_struct *transfer0 = malloc(sizeof(transfer_struct) + buffer_size);
 	if (transfer0 == NULL) {perror("malloc"); goto close_all;}
 	transfer0->fd = fd0;
+	transfer0->buffer_size = buffer_size;
 	transfer0->head_begin = 0;
 	transfer0->head_end = 0;
 	transfer0->tail_end = 0;
 	transfer0->event_write_active = false;
 	
-	transfer_struct *transfer1 = malloc(sizeof(transfer_struct));
+	transfer_struct *transfer1 = malloc(sizeof(transfer_struct) + buffer_size);
 	if (transfer1 == NULL) {perror("malloc"); goto free_transfer0;}
 	transfer1->fd = fd1;
+	transfer1->buffer_size = buffer_size;
 	transfer1->head_begin = 0;
 	transfer1->head_end = 0;
 	transfer1->tail_end = 0;

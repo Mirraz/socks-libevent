@@ -45,18 +45,12 @@ typedef struct {
 
 typedef struct {
 	server_bind_addr_struct server_bind_addr;
-	size_t transfer_buffer_size; // TODO
+	size_t transfer_buffer_size;
 } global_config_struct;
 
 typedef struct {
-	struct event_base *base;
-	struct evdns_base *dns_base;
-	set_struct dns_requests;
-} bases_struct;
-
-typedef struct {
 	int server_sockfd;
-	bases_struct bases;
+	client_handler_common_struct bases;
 	struct event *int_signal_event;
 	struct event *server_event;
 } global_resources_struct;
@@ -76,7 +70,7 @@ void signal_cb(evutil_socket_t signum, short ev_flag, void *arg) {
 }
 
 void server_accept_cb(evutil_socket_t server_sockfd, short ev_flag, void *arg) {
-	bases_struct *bases = (bases_struct *)arg;
+	client_handler_common_struct *bases = (client_handler_common_struct *)arg;
 	assert(ev_flag == EV_READ);
 	(void)ev_flag;
 	
@@ -89,7 +83,7 @@ void server_accept_cb(evutil_socket_t server_sockfd, short ev_flag, void *arg) {
 		return;
 	}
 	
-	client_handler_construct_and_run(bases->base, bases->dns_base, &bases->dns_requests, client_sockfd);
+	client_handler_construct_and_run(bases, client_sockfd);
 }
 
 void setup_server_socket(global_config_struct *global_config, global_resources_struct *global_resources) {
@@ -201,6 +195,7 @@ void run(global_config_struct *global_config) {
 	global_resources_struct global_resources;
 	
 	setup_server_socket(global_config, &global_resources);
+	global_resources.bases.transfer_buffer_size = global_config->transfer_buffer_size;
 	setup_events(&global_resources);
 	listen_server_socket(&global_resources);
 	dispatch(&global_resources);

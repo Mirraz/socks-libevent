@@ -7,8 +7,14 @@
 
 #include "set.h"
 
-void client_handler_construct_and_run(struct event_base *base, struct evdns_base *dns_base,
-		set_struct *dns_requests, int client_sockfd);
+typedef struct {
+	struct event_base *base;
+	struct evdns_base *dns_base;
+	set_struct dns_requests;
+	size_t transfer_buffer_size;
+} client_handler_common_struct;
+
+void client_handler_construct_and_run(client_handler_common_struct *common, int client_sockfd);
 bool client_handler_events_filter(const struct event *event);
 void client_handler_destruct(struct event *event);
 typedef void client_handler_dns_req_struct;
