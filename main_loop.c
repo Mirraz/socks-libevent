@@ -55,12 +55,14 @@ typedef struct {
 	struct event *server_event;
 } global_resources_struct;
 
+#define INTERRUPT_SIGNAL SIGINT
+
 void signal_cb(evutil_socket_t signum, short ev_flag, void *arg) {
 	struct event_base *base = (struct event_base *)arg;
 	assert(ev_flag == EV_SIGNAL);
 	(void)ev_flag;
 	switch(signum) {
-		case SIGINT: {
+		case INTERRUPT_SIGNAL: {
 			if (event_base_loopbreak(base)) {everror("event_base_loopbreak"); return;}
 			break;
 		}
@@ -124,7 +126,7 @@ void setup_events(global_resources_struct *global_resources) {
 	
 	set_new(&global_resources->bases.dns_requests, dns_requests_equals);
 	
-	struct event *int_signal_event = evsignal_new(base, SIGINT, signal_cb, global_resources->bases.base);
+	struct event *int_signal_event = evsignal_new(base, INTERRUPT_SIGNAL, signal_cb, global_resources->bases.base);
 	if (int_signal_event == NULL) everror_and_exit("evsignal_new");
 	global_resources->int_signal_event = int_signal_event;
 	if (event_add(int_signal_event, NULL)) everror_and_exit("event_add");
