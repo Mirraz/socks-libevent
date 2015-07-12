@@ -294,15 +294,28 @@ void transfer_destruct(struct event *event) {
 	event_callback_fn cb = event_get_callback(event);
 	transfer_struct *transfer = (transfer_struct *)event_get_callback_arg(event);
 	assert(transfer != NULL);
+	assert(event == transfer->event_read || event == transfer->event_write);
 	assert((cb == read_cb && transfer->event_read_active) || (cb == write_cb && transfer->event_write_active));
-	if (cb == read_cb && transfer->event_write_active) {
-		transfer->event_read_active = false;
-		return;
+	
+	if (cb == read_cb) {
+		if (transfer->event_write_active) {
+			transfer->event_read_active = false;
+			transfer->event_read = NULL;
+			return;
+		} else {
+			if (transfer->event_write != NULL) event_free(transfer->event_write);
+		}
+	} else {
+		assert(cb == write_cb);
+		if (transfer->event_read_active) {
+			transfer->event_write_active = false;
+			transfer->event_write = NULL;
+			return;
+		} else {
+			if (transfer->event_read != NULL) event_free(transfer->event_read);
+		}
 	}
-	if (cb == write_cb && transfer->event_read_active) {
-		transfer->event_write_active = false;
-		return;
-	}
+	
 	if (close(transfer->fd)) perror("close");
 	free(transfer);
 }
