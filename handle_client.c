@@ -106,10 +106,9 @@ static void getaddrinfo_cb(int result, struct evutil_addrinfo *res, void *arg) {
 	getaddrinfo_task_struct *tsk = &task->data.getaddrinfo_task;
 	tsk->ret = result;
 	*(tsk->res) = res;
-	if (!client_data->events.getaddrinfo.setting_up) {
-		assert(set_remove(&client_data->common->dns_requests, client_data));
-		sock5_proto_wrapper(client_data);
-	}
+	if (client_data->events.getaddrinfo.setting_up) return;
+	assert(set_remove(&client_data->common->dns_requests, client_data));
+	sock5_proto_wrapper(client_data);
 }
 
 /* return:
@@ -233,6 +232,7 @@ void client_handler_destruct(struct event *event) {
 
 void client_handler_destruct_dns_req(client_handler_dns_req_struct *dns_req) {
 	client_data_struct *client_data = (client_data_struct *)dns_req;
+	evdns_getaddrinfo_cancel(client_data->events.getaddrinfo.ev);
 	destruct(client_data);
 }
 

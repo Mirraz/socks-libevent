@@ -121,8 +121,8 @@ void setup_events(global_resources_struct *global_resources) {
 	
 	struct evdns_base *dns_base = evdns_base_new(base, EVDNS_BASE_INITIALIZE_NAMESERVERS);
 	if (dns_base == NULL) everror_and_exit("evdns_base_new");
-	global_resources->bases.dns_base = dns_base;
 	if (evdns_base_set_option(dns_base, "randomize-case", "0")) everror_and_exit("evdns_base_set_option");
+	global_resources->bases.dns_base = dns_base;
 	
 	set_new(&global_resources->bases.dns_requests, dns_requests_equals);
 	
