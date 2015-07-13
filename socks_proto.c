@@ -224,6 +224,9 @@ typedef enum {
 	REP_ADDRESS_TYPE_NOT_SUPPORTED = 8,
 } rep_enum;
 
+#define CONNECT_SOCKET_TYPE SOCK_STREAM
+#define CONNECT_SOCKET_PROTOCOL 0
+
 static void socks5_req_init(socks5_arg_struct *socks5_arg) {
 	socks5_context_union *ctx = get_ctx(socks5_arg);
 	assert(sizeof(ctx->req.header) == 4);
@@ -365,7 +368,10 @@ static int socks5_req(socks5_arg_struct *socks5_arg) {
 					assert(printed > 0 && (unsigned int)printed < sizeof(port_str));
 					(void)printed;
 					memset(hints, 0, sizeof(struct addrinfo));
+					hints->ai_flags = AI_ADDRCONFIG | AI_NUMERICSERV;
 					hints->ai_family = AF_UNSPEC;
+					hints->ai_socktype = CONNECT_SOCKET_TYPE;
+					hints->ai_protocol = CONNECT_SOCKET_PROTOCOL;
 					getaddrinfo_shedule(socks5_arg, domain_name, port_str, hints, res);
 					set_next_state(socks5_arg, STATE_REQ_GETADDRINFO);
 					return SOCKS5_RES_TASK;
@@ -402,7 +408,7 @@ static int socks5_req(socks5_arg_struct *socks5_arg) {
 			struct sockaddr_storage *addr = &ctx->req.req.conn.connect_addr.addr;
 			unsigned int addr_len =  ctx->req.req.conn.connect_addr.addr_len;
 			
-			int connect_sockfd = socket(addr->ss_family, SOCK_STREAM, 0);
+			int connect_sockfd = socket(addr->ss_family, CONNECT_SOCKET_TYPE, CONNECT_SOCKET_PROTOCOL);
 			if (connect_sockfd < 0) {perror("socket"); return SOCKS5_RES_ERROR;}
 			if (make_socket_nonblocking(connect_sockfd)) {perror("fcntl"); return SOCKS5_RES_ERROR;}
 			set_connect_sockfd(socks5_arg, connect_sockfd);
