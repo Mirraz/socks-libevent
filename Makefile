@@ -2,15 +2,14 @@ CC=gcc
 LD=gcc
 STRIP=true
 WARNINGS=-Wall -Wextra
-DEBUG=-ggdb -fsanitize=address -fsanitize=undefined
+DEBUG=-ggdb
 COPTIM=-march=native -mfpmath=sse,387 -O2 -fomit-frame-pointer -pipe
 DEFINES=
 INCLUDES=
 CFLAGS=$(WARNINGS) $(COPTIM) $(DEFINES) $(INCLUDES) $(DEBUG)
 LDOPTIM=-Wl,-O1 -Wl,--as-needed
 LIBFILES=-levent_core -levent_extra
-LDDEBUG=-lmcheck
-LDFLAGS=$(WARNINGS) $(LDOPTIM) $(LIBFILES) $(DEBUG) $(LDDEBUG)
+LDFLAGS=$(WARNINGS) $(LDOPTIM) $(LIBFILES) $(DEBUG)
 SRC_DIR=.
 BUILD_DIR=build
 EXECUTABLE=socks_server_libevent
