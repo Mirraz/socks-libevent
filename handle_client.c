@@ -119,7 +119,7 @@ static void connect_write_cb(evutil_socket_t sockfd, short ev_flag, void *arg) {
 static void getaddrinfo_cb(int result, struct evutil_addrinfo *res, void *arg) {
 	assert(result == 0 || res == NULL);
 	
-	if (result == DNS_ERR_CANCEL) return;
+	if (result == EVUTIL_EAI_CANCEL) return;
 	
 	client_data_struct *client_data = (client_data_struct *)arg;
 	assert(client_data->getaddrinfo_request != NULL);
