@@ -20,7 +20,7 @@ all: $(BUILD_DIR) $(EXECUTABLE)
 $(BUILD_DIR):
 	mkdir $(BUILD_DIR)
 
-$(EXECUTABLE): $(BUILD_DIR)/main_loop.o $(BUILD_DIR)/transfer.o $(BUILD_DIR)/handle_client.o $(BUILD_DIR)/socks_proto.o $(BUILD_DIR)/task.o $(BUILD_DIR)/common.o $(BUILD_DIR)/stack.o $(BUILD_DIR)/set.o
+$(EXECUTABLE): $(BUILD_DIR)/main_loop.o $(BUILD_DIR)/transfer.o $(BUILD_DIR)/handle_client.o $(BUILD_DIR)/socks_proto.o $(BUILD_DIR)/task.o $(BUILD_DIR)/common.o $(BUILD_DIR)/stack.o
 	$(LD) -o $@ $^ $(LDFLAGS)
 	$(STRIP) $@
 

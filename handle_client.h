@@ -5,12 +5,9 @@
 #include <event2/dns.h>
 #include <stdbool.h>
 
-#include "set.h"
-
 typedef struct {
 	struct event_base *base;
 	struct evdns_base *dns_base;
-	set_struct dns_requests;
 	size_t transfer_buffer_size;
 } client_handler_common_struct;
 

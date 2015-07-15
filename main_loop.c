@@ -18,7 +18,6 @@
 #include "handle_client.h"
 #include "common.h"
 #include "stack.h"
-#include "set.h"
 
 void printf_and_exit(const char *format, ...) {
 	va_list arglist;
@@ -124,8 +123,6 @@ void setup_events(global_resources_struct *global_resources) {
 	if (evdns_base_set_option(dns_base, "randomize-case", "0")) everror_and_exit("evdns_base_set_option");
 	global_resources->bases.dns_base = dns_base;
 	
-	set_new(&global_resources->bases.dns_requests, dns_requests_equals);
-	
 	struct event *int_signal_event = evsignal_new(base, INTERRUPT_SIGNAL, signal_cb, global_resources->bases.base);
 	if (int_signal_event == NULL) everror_and_exit("evsignal_new");
 	global_resources->int_signal_event = int_signal_event;
@@ -179,12 +176,6 @@ void close_all(global_resources_struct *global_resources) {
 	event_free(global_resources->server_event);
 	
 	free_all_clients_events(global_resources->bases.base, client_handler_events_filter, client_handler_destruct);
-	
-	set_struct *dns_requests = &global_resources->bases.dns_requests;
-	while (!set_is_empty(dns_requests)) {
-		client_handler_destruct_dns_req((client_handler_dns_req_struct *)set_extract_any_element(dns_requests));
-	}
-	
 	free_all_clients_events(global_resources->bases.base, transfer_events_filter, transfer_destruct);
 	
 	evdns_base_free(global_resources->bases.dns_base, 0);
