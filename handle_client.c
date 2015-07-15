@@ -28,18 +28,17 @@ typedef struct {
 	socks5_arg_struct socks5_arg;
 } client_data_struct;
 
-static void destruct_no_close(client_data_struct *client_data) {
+static void destruct_impl(client_data_struct *client_data, bool close_flag) {
+	if (close_flag) socks5_close_all(&client_data->socks5_arg);
 	free(client_data);
 }
 
+static void destruct_no_close(client_data_struct *client_data) {
+	destruct_impl(client_data, false);
+}
+
 static void destruct(client_data_struct *client_data) {
-	int client_sockfd = get_client_sockfd(&client_data->socks5_arg);
-	if (close(client_sockfd)) perror("close");
-	int connect_sockfd = get_connect_sockfd(&client_data->socks5_arg);
-	if (connect_sockfd >= 0) {
-		if (close(connect_sockfd)) perror("close");
-	}
-	destruct_no_close(client_data);
+	destruct_impl(client_data, true);
 }
 
 static void sock5_proto_wrapper(client_data_struct *client_data);
@@ -168,9 +167,19 @@ static int shedule_task(client_data_struct *client_data) {
 	}
 }
 
+static void pass_control_to_transfer(client_data_struct *client_data) {
+	int client_sockfd = get_client_sockfd(&client_data->socks5_arg);
+	int connect_sockfd = get_connect_sockfd(&client_data->socks5_arg);
+	assert(connect_sockfd >= 0);
+	struct event_base *base = client_data->common->base;
+	size_t transfer_buffer_size = client_data->common->transfer_buffer_size;
+	destruct_no_close(client_data);
+	transfer_construct_and_run(base, transfer_buffer_size, client_sockfd, connect_sockfd);
+}
+
 static void sock5_proto_wrapper(client_data_struct *client_data) {
 	while (true) {
-		int res = socks5(&client_data->socks5_arg);
+		socks5_result_type res = socks5(&client_data->socks5_arg);
 		switch (res) {
 			case SOCKS5_RES_TASK: {
 				int shedule_res = shedule_task(client_data);
@@ -178,25 +187,14 @@ static void sock5_proto_wrapper(client_data_struct *client_data) {
 				if (shedule_res > 0) return;
 				break; // continue loop
 			}
-			case SOCKS5_RES_ERROR:
-			case SOCKS5_RES_WRONG_DATA:
-			case SOCKS5_RES_REFUSED:
-			case SOCKS5_RES_HANGUP: {
+			case SOCKS5_RES_ERROR: {
 				destruct(client_data);
 				return;
 			}
 			case SOCKS5_RES_DONE: {
-				int client_sockfd = get_client_sockfd(&client_data->socks5_arg);
-				int connect_sockfd = get_connect_sockfd(&client_data->socks5_arg);
-				assert(connect_sockfd >= 0);
-				struct event_base *base = client_data->common->base;
-				size_t transfer_buffer_size = client_data->common->transfer_buffer_size;
-				destruct_no_close(client_data);
-				transfer_construct_and_run(base, transfer_buffer_size, client_sockfd, connect_sockfd);
+				pass_control_to_transfer(client_data);
 				return;
 			}
-			case SOCKS5_RES_AGAIN:
-				break; // continue loop
 			default:
 				assert(0);
 				destruct(client_data); return;
@@ -214,9 +212,6 @@ void client_handler_construct_and_run(client_handler_common_struct *common, int 
 	client_data->common = common;
 	
 	socks5_init(&client_data->socks5_arg, client_sockfd);
-	int shedule_res = shedule_task(client_data);
-	if (shedule_res < 0) {destruct(client_data); return;}
-	if (shedule_res > 0) return;
 	sock5_proto_wrapper(client_data);
 }
 

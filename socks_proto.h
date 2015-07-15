@@ -2,6 +2,9 @@
 #define SOCKS_PROTO_H
 
 #include <stdint.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
 
 #include "task.h"
 
@@ -67,17 +70,18 @@ typedef struct {
 } socks5_arg_struct;
 
 typedef enum {
-	SOCKS5_RES_TASK,
-	SOCKS5_RES_ERROR,
-	SOCKS5_RES_WRONG_DATA,
-	SOCKS5_RES_REFUSED,
-	SOCKS5_RES_HANGUP,
-	SOCKS5_RES_AGAIN,
-	SOCKS5_RES_DONE,
+	SOCKS5_RES_TASK = 0,
+	SOCKS5_RES_ERROR = 1,
+	SOCKS5_RES_DONE = 2,
 } socks5_result_enum;
+#define socks5_result_enum_count 3
+
+typedef unsigned int socks5_result_type;
 
 void socks5_init(socks5_arg_struct *socks5_arg, int client_sockfd);
-int socks5(socks5_arg_struct *socks5_arg);
+socks5_result_type socks5(socks5_arg_struct *socks5_arg);
+void socks5_close_all(socks5_arg_struct *socks5_arg);
+
 int get_client_sockfd(socks5_arg_struct *socks5_arg);
 int get_connect_sockfd(socks5_arg_struct *socks5_arg);
 task_struct *get_task(socks5_arg_struct *socks5_arg);

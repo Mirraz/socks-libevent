@@ -6,11 +6,12 @@
 #include <memory.h>
 #include <string.h>
 #include <errno.h>
-#include <arpa/inet.h>
-#include <netdb.h>
+#include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <netdb.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 
 #include "socks_proto.h"
 #include "task.h"
@@ -106,9 +107,11 @@ static inline int connect_result(socks5_arg_struct *socks5_arg) {
 
 
 typedef enum {
+	STATE_AUTH_INIT,
 	STATE_AUTH_HEADER,
 	STATE_AUTH_METHODS,
 	STATE_AUTH_RESPONSE,
+	STATE_REQ_INIT,
 	STATE_REQ_HEADER,
 	STATE_REQ_ADDR_DOMAIN_LEN,
 	STATE_REQ_ADDR_DOMAIN_NAME,
@@ -123,9 +126,18 @@ typedef enum {
 	STATE_DONE,
 } socks5_states_enum;
 
-#define SOCKS_VER 5
+typedef enum {
+	// go to next state
+	SOCKS5_RES_AGAIN         = socks5_result_enum_count + 0,
+	// errors
+	SOCKS5_RES_WRONG_DATA    = socks5_result_enum_count + 1,
+	SOCKS5_RES_REFUSED       = socks5_result_enum_count + 2,
+	SOCKS5_RES_HANGUP        = socks5_result_enum_count + 3,
+	SOCKS5_RES_SYSCALL_ERROR = socks5_result_enum_count + 4,
+	SOCKS5_RES_ASSERT        = socks5_result_enum_count + 5
+} socks5_internal_result_enum;
 
-static void socks5_req_init(socks5_arg_struct *socks5_arg);
+#define SOCKS_VER 5
 
 typedef enum {
 	AUTH_NO_AUTHENTICATION = 0,
@@ -134,16 +146,20 @@ typedef enum {
 	AUTH_NO_ACCEPTABLE_METHODS = 0xFF,
 } auth_method_enum;
 
-static void socks5_auth_init(socks5_arg_struct *socks5_arg) {
-	socks5_context_union *ctx = get_ctx(socks5_arg);
-	assert(sizeof(ctx->auth.header) == 2);
-	read_shedule(socks5_arg, &ctx->auth.header, 2);
-	set_next_state(socks5_arg, STATE_AUTH_HEADER);
-}
-
-static int socks5_auth(socks5_arg_struct *socks5_arg) {
+static socks5_result_type socks5_auth(socks5_arg_struct *socks5_arg) {
 	switch (get_state(socks5_arg)) {
+		case STATE_AUTH_INIT: {
+			socks5_context_union *ctx = get_ctx(socks5_arg);
+			assert(sizeof(ctx->auth.header) == 2);
+			read_shedule(socks5_arg, &ctx->auth.header, 2);
+			set_next_state(socks5_arg, STATE_AUTH_HEADER);
+			return SOCKS5_RES_TASK;
+		}
 		case STATE_AUTH_HEADER: {
+			int ret = read_result(socks5_arg);
+			if (ret == ECONNRESET) return SOCKS5_RES_HANGUP;
+			else if (ret) return SOCKS5_RES_SYSCALL_ERROR;
+			
 			socks5_context_union *ctx = get_ctx(socks5_arg);
 			uint8_t *buffer = ctx->auth.header;
 			
@@ -160,7 +176,7 @@ static int socks5_auth(socks5_arg_struct *socks5_arg) {
 		case STATE_AUTH_METHODS: {
 			int ret = read_result(socks5_arg);
 			if (ret == ECONNRESET) return SOCKS5_RES_HANGUP;
-			else if (ret) return SOCKS5_RES_ERROR;
+			else if (ret) return SOCKS5_RES_SYSCALL_ERROR;
 			
 			socks5_context_union *ctx = get_ctx(socks5_arg);
 			unsigned char nmethods = ctx->auth.methods.nmethods;
@@ -185,18 +201,18 @@ static int socks5_auth(socks5_arg_struct *socks5_arg) {
 		case STATE_AUTH_RESPONSE: {
 			int ret = write_result(socks5_arg);
 			if (ret == ECONNRESET) return SOCKS5_RES_HANGUP;
-			else if (ret) return SOCKS5_RES_ERROR;
+			else if (ret) return SOCKS5_RES_SYSCALL_ERROR;
 			
 			socks5_context_union *ctx = get_ctx(socks5_arg);
 			uint8_t resp_code = ctx->auth.response[1];
 			if (resp_code == AUTH_NO_ACCEPTABLE_METHODS) return SOCKS5_RES_REFUSED;
-
-			socks5_req_init(socks5_arg);
-			return SOCKS5_RES_TASK;
+			
+			set_next_state(socks5_arg, STATE_REQ_INIT);
+			return SOCKS5_RES_AGAIN;
 		}
 		default:
 			assert(0);
-			return SOCKS5_RES_ERROR;
+			return SOCKS5_RES_ASSERT;
 	}
 }
 
@@ -227,19 +243,19 @@ typedef enum {
 #define CONNECT_SOCKET_TYPE SOCK_STREAM
 #define CONNECT_SOCKET_PROTOCOL 0
 
-static void socks5_req_init(socks5_arg_struct *socks5_arg) {
-	socks5_context_union *ctx = get_ctx(socks5_arg);
-	assert(sizeof(ctx->req.header) == 4);
-	read_shedule(socks5_arg, &ctx->req.header, 4);
-	set_next_state(socks5_arg, STATE_REQ_HEADER);
-}
-
-static int socks5_req(socks5_arg_struct *socks5_arg) {
+static socks5_result_type socks5_req(socks5_arg_struct *socks5_arg) {
 	switch (get_state(socks5_arg)) {
+		case STATE_REQ_INIT: {
+			socks5_context_union *ctx = get_ctx(socks5_arg);
+			assert(sizeof(ctx->req.header) == 4);
+			read_shedule(socks5_arg, &ctx->req.header, 4);
+			set_next_state(socks5_arg, STATE_REQ_HEADER);
+			return SOCKS5_RES_TASK;
+		}
 		case STATE_REQ_HEADER: {
 			int ret = read_result(socks5_arg);
 			if (ret == ECONNRESET) return SOCKS5_RES_HANGUP;
-			else if (ret) return SOCKS5_RES_ERROR;
+			else if (ret) return SOCKS5_RES_SYSCALL_ERROR;
 			
 			socks5_context_union *ctx = get_ctx(socks5_arg);
 			uint8_t *buffer = ctx->req.header;
@@ -274,14 +290,14 @@ static int socks5_req(socks5_arg_struct *socks5_arg) {
 				}
 				default:
 					assert(0);
-					return SOCKS5_RES_ERROR;
+					return SOCKS5_RES_ASSERT;
 			}
 			return SOCKS5_RES_TASK;
 		}
 		case STATE_REQ_ADDR_DOMAIN_LEN: {
 			int ret = read_result(socks5_arg);
 			if (ret == ECONNRESET) return SOCKS5_RES_HANGUP;
-			else if (ret) return SOCKS5_RES_ERROR;
+			else if (ret) return SOCKS5_RES_SYSCALL_ERROR;
 			
 			socks5_context_union *ctx = get_ctx(socks5_arg);
 			unsigned char domain_name_len = ctx->req.req.conn.request_addr.host.domain.name_len;
@@ -296,7 +312,7 @@ static int socks5_req(socks5_arg_struct *socks5_arg) {
 		case STATE_REQ_ADDR_DOMAIN_NAME: {
 			int ret = read_result(socks5_arg);
 			if (ret == ECONNRESET) return SOCKS5_RES_HANGUP;
-			else if (ret) return SOCKS5_RES_ERROR;
+			else if (ret) return SOCKS5_RES_SYSCALL_ERROR;
 			
 			socks5_context_union *ctx = get_ctx(socks5_arg);
 			unsigned char domain_name_len = ctx->req.req.conn.request_addr.host.domain.name_len;
@@ -308,7 +324,7 @@ static int socks5_req(socks5_arg_struct *socks5_arg) {
 		case STATE_REQ_ADDR_IP: {
 			int ret = read_result(socks5_arg);
 			if (ret == ECONNRESET) return SOCKS5_RES_HANGUP;
-			else if (ret) return SOCKS5_RES_ERROR;
+			else if (ret) return SOCKS5_RES_SYSCALL_ERROR;
 			// not break
 		}
 		case STATE_REQ_ADDR_LABEL: {
@@ -321,7 +337,7 @@ static int socks5_req(socks5_arg_struct *socks5_arg) {
 		case STATE_REQ_PORT: {
 			int ret = read_result(socks5_arg);
 			if (ret == ECONNRESET) return SOCKS5_RES_HANGUP;
-			else if (ret) return SOCKS5_RES_ERROR;
+			else if (ret) return SOCKS5_RES_SYSCALL_ERROR;
 			
 			socks5_context_union *ctx = get_ctx(socks5_arg);
 			ctx->req.req.conn.request_addr.port = ntohs(ctx->req.req.conn.request_addr.port);
@@ -389,7 +405,7 @@ static int socks5_req(socks5_arg_struct *socks5_arg) {
 				return SOCKS5_RES_AGAIN;
 			} else if (ret != 0) {
 				printf_err("getaddrinfo: %s\n", gai_strerror(ret));
-				return SOCKS5_RES_ERROR;
+				return SOCKS5_RES_SYSCALL_ERROR;
 			}
 			
 			struct addrinfo *res  = ctx->req.req.conn.getaddrinfo_args.res;
@@ -409,8 +425,8 @@ static int socks5_req(socks5_arg_struct *socks5_arg) {
 			unsigned int addr_len =  ctx->req.req.conn.connect_addr.addr_len;
 			
 			int connect_sockfd = socket(addr->ss_family, CONNECT_SOCKET_TYPE, CONNECT_SOCKET_PROTOCOL);
-			if (connect_sockfd < 0) {perror("socket"); return SOCKS5_RES_ERROR;}
-			if (make_socket_nonblocking(connect_sockfd)) {perror("fcntl"); return SOCKS5_RES_ERROR;}
+			if (connect_sockfd < 0) {perror("socket"); return SOCKS5_RES_SYSCALL_ERROR;}
+			if (make_socket_nonblocking(connect_sockfd)) {perror("fcntl"); return SOCKS5_RES_SYSCALL_ERROR;}
 			set_connect_sockfd(socks5_arg, connect_sockfd);
 			
 			connect_shedule(socks5_arg, connect_sockfd, (struct sockaddr *)addr, addr_len);
@@ -434,13 +450,13 @@ static int socks5_req(socks5_arg_struct *socks5_arg) {
 						break;
 					default:
 						assert(0);
-						return SOCKS5_RES_ERROR;
+						return SOCKS5_RES_ASSERT;
 				}
 				ctx->req.req.rep = rep;
 				set_next_state(socks5_arg, STATE_REQ_RESPONSE_LABEL);
 				return SOCKS5_RES_AGAIN;
 			} else if (ret) {
-				return SOCKS5_RES_ERROR;
+				return SOCKS5_RES_SYSCALL_ERROR;
 			}
 			// not break;
 		}
@@ -461,7 +477,7 @@ static int socks5_req(socks5_arg_struct *socks5_arg) {
 		case STATE_REQ_RESPONSE: {
 			int ret = write_result(socks5_arg);
 			if (ret == ECONNRESET) return SOCKS5_RES_HANGUP;
-			else if (ret) return SOCKS5_RES_ERROR;
+			else if (ret) return SOCKS5_RES_SYSCALL_ERROR;
 			
 			socks5_context_union *ctx = get_ctx(socks5_arg);
 			uint8_t resp_code = ctx->req.response[1];
@@ -471,22 +487,24 @@ static int socks5_req(socks5_arg_struct *socks5_arg) {
 		}
 		default:
 			assert(0);
-			return SOCKS5_RES_ERROR;
+			return SOCKS5_RES_ASSERT;
 	}
 }
 
 void socks5_init(socks5_arg_struct *socks5_arg, int client_sockfd) {
 	set_client_sockfd(socks5_arg, client_sockfd);
 	set_connect_sockfd(socks5_arg, -1);
-	socks5_auth_init(socks5_arg);
+	set_next_state(socks5_arg, STATE_AUTH_INIT);
 }
 
-int socks5_impl(socks5_arg_struct *socks5_arg) {
+static socks5_result_type socks5_impl(socks5_arg_struct *socks5_arg) {
 	switch (get_state(socks5_arg)) {
+		case STATE_AUTH_INIT:
 		case STATE_AUTH_HEADER:
 		case STATE_AUTH_METHODS:
 		case STATE_AUTH_RESPONSE:
 			return socks5_auth(socks5_arg);
+		case STATE_REQ_INIT:
 		case STATE_REQ_HEADER:
 		case STATE_REQ_ADDR_DOMAIN_LEN:
 		case STATE_REQ_ADDR_DOMAIN_NAME:
@@ -501,19 +519,23 @@ int socks5_impl(socks5_arg_struct *socks5_arg) {
 			return socks5_req(socks5_arg);
 		default:
 			assert(0);
-			return SOCKS5_RES_ERROR;
+			return SOCKS5_RES_ASSERT;
 	}
 }
 
 #ifndef NDEBUG
-const char *state_str(socks5_state_type state) {
+static const char *state_str(socks5_state_type state) {
 	switch (state) {
+		case STATE_AUTH_INIT:
+			return "STATE_AUTH_INIT";
 		case STATE_AUTH_HEADER:
 			return "STATE_AUTH_HEADER";
 		case STATE_AUTH_METHODS:
 			return "STATE_AUTH_METHODS";
 		case STATE_AUTH_RESPONSE:
 			return "STATE_AUTH_RESPONSE";
+		case STATE_REQ_INIT:
+			return "STATE_REQ_INIT";
 		case STATE_REQ_HEADER:
 			return "STATE_REQ_HEADER";
 		case STATE_REQ_ADDR_DOMAIN_LEN:
@@ -544,7 +566,7 @@ const char *state_str(socks5_state_type state) {
 	}
 }
 
-const char *res_str(int res) {
+static const char *res_str(socks5_result_type res) {
 	switch(res) {
 		case SOCKS5_RES_TASK:
 			return "SOCKS5_RES_TASK";
@@ -556,6 +578,10 @@ const char *res_str(int res) {
 			return "SOCKS5_RES_REFUSED";
 		case SOCKS5_RES_HANGUP:
 			return "SOCKS5_RES_HANGUP";
+		case SOCKS5_RES_SYSCALL_ERROR:
+			return "SOCKS5_RES_SYSCALL_ERROR";
+		case SOCKS5_RES_ASSERT:
+			return "SOCKS5_RES_ASSERT";
 		case SOCKS5_RES_AGAIN:
 			return "SOCKS5_RES_AGAIN";
 		case SOCKS5_RES_DONE:
@@ -567,17 +593,78 @@ const char *res_str(int res) {
 }
 #endif
 
-int socks5(socks5_arg_struct *socks5_arg) {
+socks5_result_type socks5(socks5_arg_struct *socks5_arg) {
+	socks5_result_type res;
+	do {
 #ifndef NDEBUG
-	socks5_state_type begin_state = get_state(socks5_arg);
+		socks5_state_type begin_state = get_state(socks5_arg);
 #endif
-	int res = socks5_impl(socks5_arg);
+		res = socks5_impl(socks5_arg);
 #ifndef NDEBUG
-	socks5_state_type end_state = get_state(socks5_arg);
-	//printf("%s\t%s\t%s\n", state_str(begin_state), res_str(res), state_str(end_state));
-	(void)begin_state;
-	(void)end_state;
+		socks5_state_type end_state = get_state(socks5_arg);
+		
+		//printf("%s\t%s\t%s\n", state_str(begin_state), res_str(res), state_str(end_state));
+		const char *begin_state_str = state_str(begin_state);
+		const char *r_str = res_str(res);
+		const char *end_state_str = state_str(end_state);
+		(void)begin_state_str;
+		(void)r_str;
+		(void)end_state_str;
 #endif
-	return res;
+	} while (res == SOCKS5_RES_AGAIN);
+	
+	switch(res) {
+		case SOCKS5_RES_TASK:
+		case SOCKS5_RES_DONE:
+			return res;
+		case SOCKS5_RES_WRONG_DATA:
+		case SOCKS5_RES_REFUSED:
+		case SOCKS5_RES_HANGUP:
+		case SOCKS5_RES_SYSCALL_ERROR:
+		case SOCKS5_RES_ASSERT:
+			break;
+		case SOCKS5_RES_ERROR:
+		case SOCKS5_RES_AGAIN:
+		default:
+			assert(0);
+	}
+	return SOCKS5_RES_ERROR;
+}
+
+void socks5_close_all(socks5_arg_struct *socks5_arg) {
+	int client_sockfd = get_client_sockfd(socks5_arg);
+	if (close(client_sockfd)) perror("close");
+	int connect_sockfd = get_connect_sockfd(socks5_arg);
+#ifndef NDEBUG
+	switch (get_state(socks5_arg)) {
+		case STATE_AUTH_INIT:
+		case STATE_AUTH_HEADER:
+		case STATE_AUTH_METHODS:
+		case STATE_AUTH_RESPONSE:
+		case STATE_REQ_INIT:
+		case STATE_REQ_HEADER:
+		case STATE_REQ_ADDR_DOMAIN_LEN:
+		case STATE_REQ_ADDR_DOMAIN_NAME:
+		case STATE_REQ_ADDR_IP:
+		case STATE_REQ_ADDR_LABEL:
+		case STATE_REQ_PORT:
+		case STATE_REQ_GETADDRINFO:
+		case STATE_REQ_SOCKADDR_LABEL:
+			assert(connect_sockfd == -1);
+			break;
+		case STATE_REQ_CONNECT:
+			assert(connect_sockfd >= 0);
+			break;
+		case STATE_REQ_RESPONSE_LABEL:
+		case STATE_REQ_RESPONSE:
+		case STATE_DONE:
+			break;
+		default:
+			assert(0);
+	}
+#endif
+	if (connect_sockfd >= 0) {
+		if (close(connect_sockfd)) perror("close");
+	}
 }
 
