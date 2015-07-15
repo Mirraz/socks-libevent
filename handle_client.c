@@ -24,9 +24,11 @@ typedef struct {
 	bool getaddrinfo_request_setting_up;
 } client_data_struct;
 
-static void destruct_impl(client_data_struct *client_data, bool close_flag) {
-	if (event_del(client_data->client_read_event)) everror("event_del");
-	event_free(client_data->client_read_event);
+static void destruct_impl(client_data_struct *client_data, bool close_flag, bool del_read_event) {
+	if (del_read_event) {
+		if (event_del(client_data->client_read_event)) everror("event_del");
+		event_free(client_data->client_read_event);
+	}
 	if (client_data->client_write_event_active)
 		if (event_del(client_data->client_write_event)) everror("event_del");
 	event_free(client_data->client_write_event);
@@ -44,11 +46,11 @@ static void destruct_impl(client_data_struct *client_data, bool close_flag) {
 }
 
 static void destruct_no_close(client_data_struct *client_data) {
-	destruct_impl(client_data, false);
+	destruct_impl(client_data, false, true);
 }
 
 static void destruct(client_data_struct *client_data) {
-	destruct_impl(client_data, true);
+	destruct_impl(client_data, true, true);
 }
 
 static void sock5_proto_wrapper(client_data_struct *client_data);
@@ -260,6 +262,6 @@ bool client_handler_events_filter(const struct event *event) {
 void client_handler_destruct(struct event *event) {
 	client_data_struct *client_data = (client_data_struct *)event_get_callback_arg(event);
 	assert(client_data != NULL);
-	destruct(client_data);
+	destruct_impl(client_data, true, false);
 }
 
