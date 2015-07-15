@@ -198,7 +198,7 @@ static void write_cb(evutil_socket_t sockfd, short ev_flag, void *arg) {
 	
 	{
 		int ret = write_data(sockfd, transfer);
-		if (ret < 0) destruct(transfer);
+		if (ret < 0) {destruct(transfer); return;}
 	}
 	
 	if (!transfer->event_read_active && is_not_full(transfer)) {
