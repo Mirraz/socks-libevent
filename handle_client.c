@@ -21,7 +21,6 @@ typedef struct {
 	struct event *connect_write_event;
 	struct evdns_getaddrinfo_request *getaddrinfo_request;
 	bool client_write_event_active;
-	bool getaddrinfo_request_setting_up;
 } client_data_struct;
 
 static void destruct_impl(client_data_struct *client_data, bool close_flag, bool del_read_event) {
@@ -124,7 +123,6 @@ static void getaddrinfo_cb(int result, struct evutil_addrinfo *res, void *arg) {
 	if (result == EVUTIL_EAI_CANCEL) return;
 	
 	client_data_struct *client_data = (client_data_struct *)arg;
-	assert(client_data->getaddrinfo_request != NULL);
 	
 	task_struct *task = get_task(&client_data->socks5_arg);
 	assert(task->type == TASK_GETADDRINFO);
@@ -133,7 +131,7 @@ static void getaddrinfo_cb(int result, struct evutil_addrinfo *res, void *arg) {
 	tsk->ret = result;
 	*(tsk->res) = res;
 	
-	if (client_data->getaddrinfo_request_setting_up) return;
+	if (client_data->getaddrinfo_request == NULL) return;	// callback called immediately while working evdns_getaddrinfo()
 	client_data->getaddrinfo_request = NULL;
 	
 	sock5_proto_wrapper(client_data);
@@ -162,10 +160,8 @@ static int shedule_task(client_data_struct *client_data) {
 		case TASK_GETADDRINFO: {
 			assert(client_data->getaddrinfo_request == NULL);
 			getaddrinfo_task_struct *tsk = &task->data.getaddrinfo_task;
-			client_data->getaddrinfo_request_setting_up = true;
 			struct evdns_getaddrinfo_request *req = evdns_getaddrinfo(client_data->common->dns_base,
 				tsk->node, tsk->service, tsk->hints, getaddrinfo_cb, client_data);
-			client_data->getaddrinfo_request_setting_up = false;
 			if (req == NULL) return 0;
 			client_data->getaddrinfo_request = req;
 			return 1;
