@@ -1,8 +1,10 @@
 #include <stdio.h>
 #include <stdarg.h>
-#include <unistd.h>
 #include <errno.h>
+#include <unistd.h>
 #include <fcntl.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 
 #include "common.h"
 
@@ -37,7 +39,7 @@ int make_socket_nonblocking(int fd) {
 	> 0 -- read bytes
 */
 ssize_t read_wrapper(int fd, void *buf, size_t count) {
-	ssize_t bytes = read(fd, buf, count);
+	ssize_t bytes = recv(fd, buf, count, 0);
 	if (bytes < 0) {
 		switch (errno) {
 			case EAGAIN:
@@ -48,7 +50,7 @@ ssize_t read_wrapper(int fd, void *buf, size_t count) {
 			case ECONNRESET:
 				return -errno;
 			default:
-				perror("read");
+				perror("recv");
 				return -errno;
 		}
 	} else if (bytes == 0) {
@@ -64,7 +66,7 @@ ssize_t read_wrapper(int fd, void *buf, size_t count) {
 	> 0 -- write bytes
 */
 ssize_t write_wrapper(int fd, void *buf, size_t count) {
-	ssize_t bytes = write(fd, buf, count);
+	ssize_t bytes = send(fd, buf, count, MSG_NOSIGNAL);
 	if (bytes < 0) {
 		switch (errno) {
 			case EAGAIN:
@@ -75,7 +77,7 @@ ssize_t write_wrapper(int fd, void *buf, size_t count) {
 			case ECONNRESET:
 				return -errno;
 			default:
-				perror("write");
+				perror("send");
 				return -errno;
 		}
 	} else if (bytes == 0) {
