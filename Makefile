@@ -24,13 +24,13 @@ $(EXECUTABLE): $(BUILD_DIR)/main_loop.o $(BUILD_DIR)/transfer.o $(BUILD_DIR)/han
 	$(LD) -o $@ $^ $(LDFLAGS)
 	$(STRIP) $@
 
-$(BUILD_DIR)/main_loop.o: $(SRC_DIR)/main_loop.c $(SRC_DIR)/transfer.h $(SRC_DIR)/handle_client.h $(SRC_DIR)/common.h $(SRC_DIR)/stack.h $(SRC_DIR)/set.h Makefile
+$(BUILD_DIR)/main_loop.o: $(SRC_DIR)/main_loop.c $(SRC_DIR)/transfer.h $(SRC_DIR)/handle_client.h $(SRC_DIR)/common.h $(SRC_DIR)/stack.h Makefile
 	$(CC) -o $@ $< -c $(CFLAGS)
 
 $(BUILD_DIR)/transfer.o: $(SRC_DIR)/transfer.c $(SRC_DIR)/transfer.h $(SRC_DIR)/common.h Makefile
 	$(CC) -o $@ $< -c $(CFLAGS)
 
-$(BUILD_DIR)/handle_client.o: $(SRC_DIR)/handle_client.c $(SRC_DIR)/handle_client.h $(SRC_DIR)/transfer.h $(SRC_DIR)/socks_proto.h $(SRC_DIR)/task.h $(SRC_DIR)/common.h $(SRC_DIR)/set.h Makefile
+$(BUILD_DIR)/handle_client.o: $(SRC_DIR)/handle_client.c $(SRC_DIR)/handle_client.h $(SRC_DIR)/transfer.h $(SRC_DIR)/socks_proto.h $(SRC_DIR)/task.h $(SRC_DIR)/common.h Makefile
 	$(CC) -o $@ $< -c $(CFLAGS)
 
 $(BUILD_DIR)/socks_proto.o: $(SRC_DIR)/socks_proto.c $(SRC_DIR)/socks_proto.h $(SRC_DIR)/task.h $(SRC_DIR)/common.h Makefile
@@ -43,9 +43,6 @@ $(BUILD_DIR)/common.o: $(SRC_DIR)/common.c $(SRC_DIR)/common.h Makefile
 	$(CC) -o $@ $< -c $(CFLAGS)
 
 $(BUILD_DIR)/stack.o: $(SRC_DIR)/stack.c $(SRC_DIR)/stack.h Makefile
-	$(CC) -o $@ $< -c $(CFLAGS)
-
-$(BUILD_DIR)/set.o: $(SRC_DIR)/set.c $(SRC_DIR)/set.h Makefile
 	$(CC) -o $@ $< -c $(CFLAGS)
 
 clean:
