@@ -45,6 +45,17 @@ $(BUILD_DIR)/common.o: $(SRC_DIR)/common.c $(SRC_DIR)/common.h Makefile
 $(BUILD_DIR)/stack.o: $(SRC_DIR)/stack.c $(SRC_DIR)/stack.h Makefile
 	$(CC) -o $@ $< -c $(CFLAGS)
 
+
+socks_server_: $(BUILD_DIR) socks_server
+
+socks_server:  $(BUILD_DIR)/socks_server.o
+	$(LD) -o $@ $^ $(WARNINGS) $(LDOPTIM) $(DEBUG)
+	$(STRIP) $@
+
+$(BUILD_DIR)/socks_server.o: $(SRC_DIR)/socks_server.c Makefile
+	$(CC) -o $@ $< -c $(WARNINGS) $(COPTIM) $(DEFINES) $(DEBUG)
+
+
 clean:
 	rm -rf $(BUILD_DIR)
 
