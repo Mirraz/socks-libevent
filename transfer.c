@@ -184,8 +184,8 @@ static void read_cb(evutil_socket_t sockfd, short ev_flag, void *arg) {
 	}
 	
 	if (is_full(transfer)) {
-		if (event_del(transfer->event_read)) {everror("event_del"); destruct(transfer); return;}
 		transfer->event_read_active = false;
+		if (event_del(transfer->event_read)) {everror("event_del"); destruct(transfer); return;}
 	}
 }
 
@@ -212,8 +212,8 @@ static void write_cb(evutil_socket_t sockfd, short ev_flag, void *arg) {
 	}
 	
 	if (is_empty(transfer)) {
-		if (event_del(transfer->event_write)) {everror("event_del"); destruct(transfer); return;}
 		transfer->event_write_active = false;
+		if (event_del(transfer->event_write)) {everror("event_del"); destruct(transfer); return;}
 	}
 }
 
