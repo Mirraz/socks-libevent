@@ -109,10 +109,6 @@ void listen_server_socket(global_resources_struct *global_resources) {
 	if (listen(global_resources->server_sockfd, MAXPENDING)) perror_and_exit("listen");
 }
 
-bool dns_requests_equals(const void *element1, const void *element2) {
-	return (element1 == element2);
-}
-
 void setup_events(global_resources_struct *global_resources) {
 	struct event_base *base = event_base_new();
 	if (base == NULL) everror_and_exit("event_base_new");
