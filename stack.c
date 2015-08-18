@@ -36,6 +36,6 @@ void *stack_front(const stack_struct *stack) {
 }
 
 void stack_clear(stack_struct *stack) {
-	while (stack_is_empty(stack)) stack_pop(stack);
+	while (!stack_is_empty(stack)) stack_pop(stack);
 }
 
