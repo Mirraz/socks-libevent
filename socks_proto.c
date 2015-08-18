@@ -344,7 +344,7 @@ static socks5_result_type socks5_req(socks5_arg_struct *socks5_arg) {
 			
 			unsigned char cmd = ctx->req.req.cmd;
 			if (cmd != CMD_CONNECT) {
-				ctx->req.req.rep = REP_HOST_UNREACHABLE;
+				ctx->req.req.rep = REP_COMMAND_NOT_SUPPORTED;
 				set_next_state(socks5_arg, STATE_REQ_RESPONSE_LABEL);
 				return SOCKS5_RES_AGAIN;
 			}
