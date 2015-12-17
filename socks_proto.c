@@ -426,8 +426,8 @@ static socks5_result_type socks5_req(socks5_arg_struct *socks5_arg) {
 			
 			int connect_sockfd = socket(addr->ss_family, CONNECT_SOCKET_TYPE, CONNECT_SOCKET_PROTOCOL);
 			if (connect_sockfd < 0) {perror("socket"); return SOCKS5_RES_SYSCALL_ERROR;}
-			if (make_socket_nonblocking(connect_sockfd)) {perror("fcntl"); return SOCKS5_RES_SYSCALL_ERROR;}
 			set_connect_sockfd(socks5_arg, connect_sockfd);
+			if (make_socket_nonblocking(connect_sockfd)) {perror("fcntl"); return SOCKS5_RES_SYSCALL_ERROR;}
 			
 			connect_shedule(socks5_arg, connect_sockfd, (struct sockaddr *)addr, addr_len);
 			set_next_state(socks5_arg, STATE_REQ_CONNECT);
