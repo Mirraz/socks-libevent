@@ -2,6 +2,10 @@
 Socks server implementation based on libevent.
 
 Socks server works without creating additional processes or threads. Based on events and non-blocking io.
+
+## Requirements
+`>=libevent-2.1.0`
+
 ## Compilation
 ```
 make
